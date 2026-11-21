@@ -45,7 +45,11 @@ if not (REPO / "software" / "station" / "shared" / "station_py").is_dir():
 sys.path.insert(0, str(REPO / "software" / "station" / "shared"))
 sys.path.insert(0, str(REPO))
 
+import anyio  # noqa: E402  (dependency of mcp; used to shield the safety hold from cancellation)
 from mcp.server.fastmcp import FastMCP, Image  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import motion as M  # noqa: E402
 
 from station_py import ErrQueueNotFound, new_station_client, send_commands  # noqa: E402
 from target.gen_python.protobuf.drivers.motors_mirroring import mirroring  # noqa: E402
@@ -217,7 +221,9 @@ async def read_buses() -> dict[str, dict]:
                 "current": _u16(s, RAM_PRESENT_CURRENT),
                 "error_status": _u8(s, RAM_STATUS),
             }
-        buses[serial] = {"motors": dict(sorted(motors.items()))}
+        # stamp_ns: station monotonic time of this bus snapshot; the motion engine uses it
+        # to detect stale state (it must keep advancing while we move).
+        buses[serial] = {"motors": dict(sorted(motors.items())), "stamp_ns": int(bus.get_monotonic_stamp_ns())}
     return buses
 
 
@@ -647,6 +653,7 @@ async def set_gripper(opening: float, bus: str | None = None) -> dict:
 @mcp.tool()
 async def relax(bus: str | None = None) -> str:
     """EMERGENCY / SAFE STOP: torque off on every motor of the follower bus (arm goes limp - support it!)."""
+    _abort.set()  # also stop a running go_to/play_motion
     buses = await read_buses()
     serial = pick_bus(buses, bus)
     ids = list(buses[serial]["motors"])
@@ -665,7 +672,8 @@ async def _hold(serial: str, buses: dict[str, dict]) -> None:
 
 @mcp.tool()
 async def hold(bus: str | None = None) -> str:
-    """Torque on, holding the current pose."""
+    """Torque on, holding the current pose (also stops a running go_to/play_motion)."""
+    _abort.set()
     buses = await read_buses()
     serial = pick_bus(buses, bus)
     await guard_motion(serial)
@@ -744,6 +752,207 @@ async def teach_mode(on: bool, force: bool = False) -> dict:
     await _hold(follower, await read_buses())
     return {"teach_mode": "off", "follower": follower, "holding": True,
             "note": None if limp else "didn't observe Station's torque-off within 2 s; held anyway"}
+
+
+# ----------------------------------------------------------------------------
+# fast playback engine: runs whole motions inside the server (~20 Hz), so Claude
+# plans once and checks once instead of thinking between every small step.
+
+MOTION_RATE_HZ = float(os.environ.get("MOTION_RATE_HZ", "20"))
+MAX_VEL_NORM = float(os.environ.get("MAX_VEL_NORM", "0.5"))        # norm/s per joint; untuned, start low
+APPROACH_VEL_NORM = float(os.environ.get("APPROACH_VEL_NORM", "0.3"))
+MOTION_ACCEL = int(os.environ.get("MOTION_ACCEL", "50"))           # servo accel register; Station teleop uses 5..100
+SETTLE_S = float(os.environ.get("SETTLE_S", "1.0"))
+SETTLE_TOL = float(os.environ.get("SETTLE_TOL", "0.02"))
+LIMITS_FILE = Path(os.environ.get("LIMITS_FILE", str(Path(__file__).resolve().parent / "data" / "limits.json")))
+
+_motion_lock = asyncio.Lock()
+_abort = asyncio.Event()
+
+
+def _safety_config() -> M.SafetyConfig:
+    per = {}
+    for part in os.environ.get("CURRENT_LIMITS", "").split(","):   # e.g. "8:40,5:60" like station.yaml
+        if ":" in part:
+            k, v = part.split(":", 1)
+            per[int(k)] = int(v)
+    return M.SafetyConfig(
+        current_limit=int(os.environ.get("CURRENT_LIMIT", "100")),
+        per_motor_current=per, gripper_id=GRIPPER_ID,
+        track_err_max=float(os.environ.get("TRACK_ERR_MAX", "0.10")),
+        track_err_ticks=int(os.environ.get("TRACK_ERR_TICKS", "5")),
+        stale_s=float(os.environ.get("STALE_STATE_S", "0.5")))
+
+
+def _soft_limits() -> dict[int, tuple[float, float]]:
+    """data/limits.json: {"2": [0.1, 0.9], ...} normalized soft limits per joint (optional)."""
+    try:
+        data = json.loads(LIMITS_FILE.read_text(encoding="utf-8"))
+        return {int(k): (float(v[0]), float(v[1])) for k, v in data.items()}
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError, TypeError, IndexError) as e:
+        raise RuntimeError(f"{LIMITS_FILE} is invalid ({e}); fix it before moving") from e
+
+
+def _resolve_joint_keys(d: dict, motors: dict) -> dict[int, float]:
+    names = {v["joint"]: k for k, v in motors.items()}
+    out = {}
+    for key, val in d.items():
+        mid = int(key) if str(key).isdigit() else names.get(str(key))
+        if mid is None or mid not in motors:
+            raise RuntimeError(f"unknown joint {key!r}; known: {list(names)}")
+        out[mid] = val
+    return out
+
+
+async def _hold_shielded(serial: str) -> None:
+    """Hold the current pose even if this tool call is being cancelled."""
+    with anyio.CancelScope(shield=True):
+        try:
+            await _hold(serial, await read_buses())
+        except Exception:
+            log.exception("SAFETY: failed to hold %s after a stopped motion", serial)
+
+
+async def _run_motion(waypoints: list[dict], speed_scale: float, bus: str | None) -> dict:
+    if _motion_lock.locked():
+        raise RuntimeError("another motion is running; call stop_motion first")
+    async with _motion_lock:
+        _abort.clear()
+        buses = await read_buses()
+        serial = pick_bus(buses, bus)
+        await guard_motion(serial)
+        motors = buses[serial]["motors"]
+        bad = {m["joint"]: ("not calibrated" if not m["calibrated"] else f"error 0x{m['error_status']:02X}")
+               for m in motors.values()
+               if not m["calibrated"] or (m["error_status"] & ~M.IGNORED_STATUS_BITS)}
+        if bad:
+            raise RuntimeError(f"refusing to move: {bad}")
+        ids = sorted(motors)
+        current = {j: motors[j]["position_norm"] for j in ids}
+        wps = [{**w, "joints": {str(k): v for k, v in _resolve_joint_keys(w.get("joints") or {}, motors).items()}}
+               for w in waypoints]
+        tl = M.build_timeline(current, wps, speed_scale=speed_scale, max_vel=MAX_VEL_NORM,
+                              limits=_soft_limits(), approach_vel=APPROACH_VEL_NORM)
+        ranges = {j: (motors[j]["range_min"], motors[j]["range_max"]) for j in ids}
+        peak = tl.peak_velocity()
+        speeds = [(j, M.steps_per_s(peak.get(j, 0.0), range_size(*ranges[j])).to_bytes(2, "little")) for j in ids]
+        monitor = M.SafetyMonitor(_safety_config())
+        c = await client()
+        await send_commands(c, [
+            _sync_write(serial, RAM_GOAL_SPEED, speeds),
+            _sync_write(serial, RAM_ACC, [(j, bytes([MOTION_ACCEL])) for j in ids]),
+            _sync_write(serial, RAM_TORQUE_ENABLE, [(j, b"\x01") for j in ids]),
+        ])
+
+        period = 1.0 / MOTION_RATE_HZ
+        reason, ticks, late = None, 0, 0
+        last_stamp, last_change = None, time.monotonic()
+        gripper_hold = None
+        latest = motors
+        t0 = time.monotonic()
+        try:
+            while True:
+                if _abort.is_set():
+                    reason = "stopped by stop_motion/relax/hold"
+                    break
+                t = time.monotonic() - t0
+                target = tl.sample(t)
+                if monitor.gripper_blocked and GRIPPER_ID in target:
+                    if gripper_hold is None:
+                        gripper_hold = latest[GRIPPER_ID]["position_norm"]
+                    target[GRIPPER_ID] = gripper_hold  # grasped: stop squeezing, like Station's mirroring does
+                await send_commands(c, [_sync_write(serial, RAM_GOAL_POSITION, [
+                    (j, from_norm(target[j], *ranges[j]).to_bytes(2, "little")) for j in ids])])
+                state = (await read_buses())[serial]
+                latest = state["motors"]
+                if state["stamp_ns"] != last_stamp:
+                    last_stamp, last_change = state["stamp_ns"], time.monotonic()
+                reason = monitor.check(latest, target, time.monotonic() - last_change)
+                if reason:
+                    break
+                ticks += 1
+                if t >= tl.duration:
+                    break
+                delay = t0 + ticks * period - time.monotonic()
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                else:
+                    late += 1
+            settled = None
+            if reason is None:
+                deadline = time.monotonic() + SETTLE_S
+                final = tl.sample(tl.duration)
+                while True:
+                    latest = (await read_buses())[serial]["motors"]
+                    errs = {j: abs(latest[j]["position_norm"] - final[j]) for j in ids
+                            if not (j == GRIPPER_ID and monitor.gripper_blocked)}
+                    settled = max(errs.values(), default=0.0) <= SETTLE_TOL
+                    if settled or time.monotonic() > deadline:
+                        break
+                    await asyncio.sleep(period)
+        except BaseException:
+            await _hold_shielded(serial)
+            raise
+        if reason:
+            await _hold_shielded(serial)
+            log.warning("motion aborted: %s", reason)
+        elapsed = time.monotonic() - t0
+        return {
+            "completed": reason is None,
+            "abort_reason": reason,
+            "bus": serial,
+            "planned_s": round(tl.duration, 2),
+            "elapsed_s": round(elapsed, 2),
+            "ticks": ticks,
+            "late_ticks": late,
+            "settled": settled,
+            "grasp_detected": monitor.gripper_blocked,
+            "stretched_segments": tl.stretched_segments,
+            "clamped_targets": tl.clamped or None,
+            "max_tracking_error": {motors[j]["joint"]: round(e, 3) for j, e in monitor.max_track_err.items()},
+            "final": {motors[j]["joint"]: latest[j]["position_norm"] for j in ids},
+        }
+
+
+@mcp.tool()
+async def go_to(targets: dict[str, float], duration_s: float = 0.0, speed_scale: float = 1.0,
+                bus: str | None = None) -> dict:
+    """FAST single move: glide to absolute normalized positions in one smooth motion.
+
+    targets: {"<motor id or joint name>": 0..1}. duration_s=0 picks the fastest time allowed
+    by MAX_VEL_NORM; a too-short duration is stretched, never exceeded. Runs inside the server
+    at ~20 Hz with safety checks (servo errors, over-current = collision, tracking error,
+    stale data); on any problem it stops and holds. Gripper over-current counts as a grasp.
+    Use move_joints/nudge_joints for careful single steps while learning.
+    """
+    return await _run_motion([{"joints": targets, "duration_s": max(0.0, duration_s)}], speed_scale, bus)
+
+
+@mcp.tool()
+async def play_motion(waypoints: list[dict], speed_scale: float = 1.0, bus: str | None = None) -> dict:
+    """FAST playback of a whole motion in one call (the "reflex" path).
+
+    waypoints, either form:
+      keyframes: [{"joints": {"shoulder": 0.3, "8": 0.9}, "duration_s": 1.5}, ...]
+        (eased segments; joints not listed keep their value)
+      dense recording: [{"t": 0.00, "joints": {...}}, {"t": 0.05, ...}, ...]
+        (played with original timing after a gentle approach to the first sample)
+    speed_scale: 1.0 = as recorded/specified; 1.5 = 50% faster (velocity cap still applies).
+    Returns completed / abort_reason / grasp_detected / max_tracking_error / final pose.
+    Check the result with `look` once at the end, not between waypoints.
+    """
+    return await _run_motion(waypoints, speed_scale, bus)
+
+
+@mcp.tool()
+async def stop_motion() -> str:
+    """Stop a running go_to/play_motion: the arm holds where it is.
+    (Claude Code runs one tool at a time, so this is mainly for a second client such as an
+    e-stop script; hold/relax also stop a running motion.)"""
+    _abort.set()
+    return "stop requested; a running motion will hold its current pose"
 
 
 if __name__ == "__main__":

@@ -10,6 +10,8 @@ import asyncio, io, os, sys
 sys.path.insert(0, sys.argv[1])
 os.environ["NORMA_CORE_REPO"] = sys.argv[2]
 os.environ["FOLLOWER_BUS"] = "FOLLOW"
+# fast settings so the motion-engine tests run in a few seconds
+os.environ.update({"MOTION_RATE_HZ": "100", "MAX_VEL_NORM": "2.0", "SETTLE_S": "0.5", "TRACK_ERR_TICKS": "5"})
 import tempfile
 _TMP = tempfile.mkdtemp(prefix="normacore-test-")
 os.environ["CAMERAS_FILE"] = os.path.join(_TMP, "cameras.json")  # never write into the repo's data/
@@ -33,17 +35,47 @@ MODEL = {
 }
 MIRROR = {"present": True, "links": {}, "modes": {}}  # links: follower -> leader
 
-def motor_state(pos, torque):
+def motor_state(pos, torque, current=0, err=0):
     b = bytearray(0x50)
     b[0x38:0x3A] = pos.to_bytes(2, "little"); b[0x28] = torque
+    b[0x45:0x47] = current.to_bytes(2, "little"); b[0x40] = err
     return bytes(b)
 
+# Simulated follower servos (off until the motion-engine tests): each st3215 read moves every
+# torqued follower motor up to SIM["step"] steps toward its goal and advances the bus stamp.
+SIM = {"on": False, "step": 300, "stamp": 1, "freeze": False, "reads": 0,
+       "spike": None, "err": None, "blocked": set(), "grip_stop": None}
+
+def sim_tick():
+    if not SIM["on"]:
+        return
+    SIM["reads"] += 1
+    if not SIM["freeze"]:
+        SIM["stamp"] += 1
+    for j, m in MODEL["FOLLOW"].items():
+        m["cur"], m["err"] = 10, 0
+        goal = m.get("goal")
+        if goal is None or not m["torque"] or j in SIM["blocked"]:
+            continue
+        d = max(-SIM["step"], min(SIM["step"], goal - m["pos"]))
+        new = m["pos"] + d
+        gs = SIM["grip_stop"]
+        if j == 8 and gs is not None and goal < gs and new <= gs:   # jaws closed on an object
+            new, m["cur"] = gs, 300
+        m["pos"] = new
+    for key in ("spike", "err"):
+        ev = SIM[key]
+        if ev and SIM["reads"] >= ev["after"]:
+            MODEL["FOLLOW"][ev["motor"]]["cur" if key == "spike" else "err"] = ev["value"]
+
 def enc_st3215():
+    sim_tick()
     buses = []
     for serial, motors in MODEL.items():
-        ms = [st3215.InferenceState_MotorState(id=i, state=motor_state(m["pos"], m["torque"]),
+        ms = [st3215.InferenceState_MotorState(id=i, state=motor_state(m["pos"], m["torque"], m.get("cur", 0), m.get("err", 0)),
                                                range_min=m["rmin"], range_max=m["rmax"], range_freezed=m["frozen"]) for i, m in motors.items()]
-        buses.append(st3215.InferenceState_BusState(bus=st3215.ST3215Bus(serial_number=serial), motors=ms))
+        buses.append(st3215.InferenceState_BusState(bus=st3215.ST3215Bus(serial_number=serial), motors=ms,
+                                                    monotonic_stamp_ns=SIM["stamp"]))
     return st3215.InferenceState(buses=buses).encode()
 
 def mb(s): return mirroring.MirroringBus(type=mirroring.BusType.MBT_ST3215, unique_id=s)
@@ -116,6 +148,9 @@ async def fake_send(_c, cmds):
             if sw and sw.get_address() == S.RAM_TORQUE_ENABLE:
                 for mw in sw.get_motors():
                     MODEL[cmd.get_target_bus_serial()][mw.get_motor_id()]["torque"] = bytes(mw.get_value())[0]
+            if sw and sw.get_address() == S.RAM_GOAL_POSITION:
+                for mw in sw.get_motors():
+                    MODEL[cmd.get_target_bus_serial()][mw.get_motor_id()]["goal"] = int.from_bytes(bytes(mw.get_value()), "little")
 
 async def fake_client(): return None
 S.read_last, S.send_commands, S.client = fake_read_last, fake_send, fake_client
@@ -270,10 +305,100 @@ async def main():
     check("move allowed when mirroring queue missing", r["bus"] == "FOLLOW")
     await expect_error("teach_mode needs mirroring driver", S.teach_mode(True), "not found")
 
+    await motion_engine_tests()
+
     tools = sorted(t.name for t in await S.mcp.list_tools())
     print("tools:", tools)
     check("teach_mode tool registered", "teach_mode" in tools)
+    check("motion tools registered", {"go_to", "play_motion", "stop_motion"} <= set(tools))
     print(f"\n{'ALL PASSED' if not FAILS else f'{len(FAILS)} FAILED: {FAILS}'}")
     sys.exit(1 if FAILS else 0)
+
+def reset_follower():
+    for m in MODEL["FOLLOW"].values():
+        m.update(pos=2000, torque=1, goal=2000, cur=10, err=0)
+    SIM.update(on=True, freeze=False, reads=0, spike=None, err=None, blocked=set(), grip_stop=None)
+
+def held_at_present():
+    """Last goal write to FOLLOW equals current positions, and torque is on (= hold)."""
+    _, goals = last_goal_write()
+    return all(MODEL["FOLLOW"][j]["goal"] == MODEL["FOLLOW"][j]["pos"] for j, _ in goals) and \
+        all(m["torque"] == 1 for m in MODEL["FOLLOW"].values())
+
+async def motion_engine_tests():
+    import anyio, time as _t
+    print("\n--- motion engine (simulated servos) ---")
+    MIRROR.update(present=False); MIRROR["links"].clear(); MIRROR["modes"].clear()
+
+    reset_follower()
+    r = await S.go_to({"shoulder": 0.7})
+    check("go_to completes and settles", r["completed"] and r["settled"], str(r))
+    check("go_to reaches target", abs(r["final"]["shoulder"] - 0.7) <= 0.02, r["final"])
+    check("go_to streams many small goals", r["ticks"] >= 5, r["ticks"])
+    check("go_to timing matches plan", abs(r["elapsed_s"] - r["planned_s"]) < 0.6, (r["planned_s"], r["elapsed_s"]))
+
+    reset_follower(); MODEL["FOLLOW"][8].update(pos=2800, goal=2800); SIM["grip_stop"] = 2000
+    r = await S.play_motion([{"joints": {"elbow": 0.6}, "duration_s": 0.3},
+                             {"joints": {"gripper": 0.1}, "duration_s": 0.5}])
+    check("grasp detected, motion still completes", r["completed"] and r["grasp_detected"], str(r))
+    check("gripper stops squeezing at the object", MODEL["FOLLOW"][8]["goal"] >= 1990, MODEL["FOLLOW"][8])
+
+    reset_follower(); SIM["spike"] = {"motor": 2, "after": 10, "value": 500}
+    r = await S.play_motion([{"joints": {"shoulder": 0.9}, "duration_s": 1.0}])
+    check("collision (over-current) aborts", not r["completed"] and "current 500" in r["abort_reason"], str(r))
+    check("after abort the arm holds where it is", held_at_present())
+
+    reset_follower(); SIM["err"] = {"motor": 4, "after": 10, "value": 0x20}
+    r = await S.play_motion([{"joints": {"elbow": 0.9}, "duration_s": 1.0}])
+    check("servo overload bit aborts", not r["completed"] and "0x20" in r["abort_reason"], str(r))
+
+    reset_follower(); SIM["err"] = {"motor": 4, "after": 3, "value": 0x01}
+    r = await S.go_to({"elbow": 0.6})
+    check("voltage bit alone does not abort", r["completed"], str(r))
+
+    reset_follower(); SIM["blocked"] = {3}
+    r = await S.play_motion([{"joints": {"upper_arm_roll": 0.9}, "duration_s": 0.5}])
+    check("blocked joint aborts on tracking error", not r["completed"] and "away from its target" in r["abort_reason"], str(r))
+
+    reset_follower(); SIM["freeze"] = True
+    r = await S.play_motion([{"joints": {"shoulder": 0.8}, "duration_s": 1.5}])
+    check("frozen robot data aborts (no moving blind)", not r["completed"] and "old" in r["abort_reason"], str(r))
+
+    reset_follower()
+    task = asyncio.create_task(S.play_motion([{"joints": {"shoulder": 0.9}, "duration_s": 1.5}]))
+    await asyncio.sleep(0.2)
+    await expect_error("second motion refused while one runs", S.go_to({"elbow": 0.6}), "another motion")
+    await S.stop_motion()
+    r = await task
+    check("stop_motion stops a running motion", not r["completed"] and "stopped" in r["abort_reason"], str(r))
+    check("stopped motion holds", held_at_present())
+
+    reset_follower()
+    t0 = _t.monotonic()
+    async with anyio.create_task_group() as tg:
+        scope = anyio.CancelScope()
+        async def run():
+            with scope:
+                await S.play_motion([{"joints": {"shoulder": 0.9}, "duration_s": 1.5}])
+        tg.start_soon(run)
+        await anyio.sleep(0.2)
+        scope.cancel()        # what the MCP library does when the client cancels the call
+    check("cancelled call ends quickly", _t.monotonic() - t0 < 1.0)
+    check("cancelled call still holds the arm (shielded)", held_at_present())
+    r = await S.go_to({"shoulder": 0.5})
+    check("engine usable again after cancel (lock released)", r["completed"], str(r))
+
+    reset_follower()
+    rec = [{"t": i * 0.05, "joints": {"shoulder": 0.5 + 0.01 * i}} for i in range(21)]
+    r1 = await S.play_motion(rec)
+    reset_follower()
+    r2 = await S.play_motion(rec, speed_scale=2.0)
+    check("dense recording plays with its timing", r1["completed"] and abs(r1["planned_s"] - 1.0) < 0.05, str(r1))
+    check("speed_scale 2 halves the plan", abs(r2["planned_s"] - 0.5) < 0.05 and r2["completed"], str(r2))
+
+    reset_follower(); MIRROR.update(present=True); MIRROR["links"]["FOLLOW"] = "LEAD"
+    await expect_error("fast moves refused while teach mode is on", S.go_to({"shoulder": 0.6}), "teach_mode(on=False)")
+    MIRROR["links"].clear(); MIRROR.update(present=False)
+    SIM["on"] = False
 
 asyncio.run(main())

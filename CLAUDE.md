@@ -91,6 +91,11 @@ Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future ru
 - How fast the follower jumps when mirroring starts (mirroring sets speed by distance, `mirror.rs` `get_speed_and_accel_by_distance`).
 - Read rate of `st3215/inference` (needed for `skill_from_history`).
 - Which gripper direction is open.
+- Engine defaults are untuned guesses: `MAX_VEL_NORM` 0.5, `TRACK_ERR_MAX` 0.10 × 5 ticks, `MOTION_ACCEL` 50. Measure `max_tracking_error`,
+  `late_ticks` and `elapsed_s` vs `planned_s` from real `play_motion` reports, then tune (raising limits needs the human's OK, §5).
+- Whether 20 Hz is reachable: each tick does one command write + one state read over TCP; `late_ticks` shows if it isn't.
+- Whether pressing Esc in Claude Code sends an MCP cancel (the library would then cancel the call and the engine holds the arm;
+  verified in mcp/shared/session.py, but the client side is unverified). Until checked, treat `relax`/power as the real e-stop.
 - Web UI: motor-ID change page (set IDs one servo at a time) and **Auto Calibrate → Save** per bus
   (disabled below 7.0 V bus voltage, so the leader is calibrated manually: Reset → move joints by hand → Save).
 - **Built-in teleop (motors-mirroring driver)**: Station mirrors leader → follower itself; no Python script needed.
@@ -161,7 +166,7 @@ Pitch: *"Show it once by hand, then just tell it what to do. It watches, acts, c
 | P | Component | File(s) | What | Status |
 |---|---|---|---|---|
 | P0 | Station I/O | `station_io.py` | split connection/state/camera/command code out of `server.py` | todo |
-| P0 | Motion core | `motion.py` | `execute_trajectory(targets, duration)`: ~20 Hz interpolation, per-joint velocity cap, abort+`hold` on servo error / current spike / soft-limit breach (`data/limits.json`); `gripper_status()` grasp detection (gripper stalled early + current high = holding) | todo |
+| P0 | Fast playback engine | `motion.py` (pure logic), `server.py` (`go_to`, `play_motion`, `stop_motion`) | ~20 Hz streaming of eased keyframes or dense recordings, `speed_scale`, per-joint velocity cap (`MAX_VEL_NORM`), soft limits (`data/limits.json`); aborts + holds on servo error bits (voltage ignored like Station), over-current (=collision), tracking error, stale state, stop/hold/relax, cancellation (shielded hold); gripper over-current = grasp (stops squeezing) | done, offline-tested (simulated servos); **not yet tried on hardware** |
 | P0 | Teach mode + mirroring guard | `server.py` | `teach_mode(on/off)` starts/stops Station's built-in leader→follower mirroring; every motion tool refuses while the follower is a mirroring target | done, offline-tested; **not yet tried on hardware** |
 | P0 | Poses | `poses.py`, `data/poses.json` | `save_pose`, `list_poses`, `go_to_pose` | todo |
 | P0 | Demonstration capture | `learn.py` | `record_demo` / `skill_from_history` (see Learning protocol) | todo |
@@ -173,8 +178,8 @@ Pitch: *"Show it once by hand, then just tell it what to do. It watches, acts, c
 | P3 | Demo agent/UI | `agent.py`, `ui/` | Claude API agent with the same tools + page with camera feeds, reasoning stream, STOP button | stretch |
 | P3 | SmolVLA | upstream `software/ai/smolvla_py` | train a policy on recorded demos for one fast skill; Claude stays the planner | stretch |
 
-Final tool surface: perception (`look`, `list_cameras`, `set_camera_role`, `find_objects`, `gripper_status`, `get_robot_state`), motion (`go_to_pose`,
-`nudge_joints`, `grasp`, `release`), skills (`list_skills`, `run_skill`, `edit_skill`, `pick`, `place`), learning
+Final tool surface: perception (`look`, `list_cameras`, `set_camera_role`, `find_objects`, `gripper_status`, `get_robot_state`), motion (`go_to`,
+`play_motion`, `stop_motion`, `go_to_pose`, `nudge_joints`, `grasp`, `release`), skills (`list_skills`, `run_skill`, `edit_skill`, `pick`, `place`), learning
 (`teach_mode`, `record_demo`, `skill_from_history`, `save_pose`), safety (`hold`, `relax`).
 **If a tool you need for the protocol below doesn't exist yet, build it (roadmap order) rather than improvising with raw joint moves.**
 
@@ -223,8 +228,25 @@ objects), improve the code (`learn.py`, `vision.py`, `motion.py`, ...). Then: ru
 (add a test for the change), commit, and tell the human the MCP server needs a reconnect (`/mcp`).
 Record what you learned in the **Learned facts** section below.
 
+## 4b. Keep improving the code on your own (not only after failures)
+When you notice something slow, clumsy, fragile or wrong in this repo's code or docs (a tool that needs too many
+calls, a check that wastes time, a confusing message, an outdated statement, a missing test), improve it:
+1. **Measure first.** Get evidence: timings from tool reports (`elapsed_s`, `late_ticks`, `ticks`), test output, run logs,
+   or the norma-core source (cite file:line). No "probably faster": show the before number.
+2. **Small change, with a test.** One improvement per commit; add or extend a test in `tests/` that proves it.
+   Run `tests/test_motion.py` and `tests/offline_test.py`; both must pass.
+3. **Show the after number** in the commit message, and add a line to **Learned facts**.
+4. **Tell the human** what changed and that the MCP server needs a restart.
+5. Speed-ups never come from loosening safety (§5): faster playback is allowed only through `speed_scale` and the
+   practice rules, not by raising current/velocity/tracking limits without the human's OK.
+6. Before editing, `git pull` and read teammates' new commits; don't overwrite their work, and flag problems you find in it.
+
+## Evidence over assumptions (applies to everything above)
+Back claims about Station, the servos or the robot with proof: norma-core source (file:line), a test, or a measurement on
+the arm. Anything unproven is labelled **unverified** and goes in the "Unverified on hardware" list until checked.
+
 ## 5. Guardrails for self-modification (never broken without explicit human OK)
-- Never loosen safety: `MAX_STEP_NORM`, velocity caps, `data/limits.json`, current-abort thresholds,
+- Never loosen safety: `MAX_STEP_NORM`, `MAX_VEL_NORM`, `TRACK_ERR_MAX`, `CURRENT_LIMIT(S)`, `data/limits.json`,
   the leader-bus ban, the `relax`/`hold` behaviour.
 - Never replay a new or changed skill at full speed before one successful 50%-speed run with a human watching.
 - Never run a skill while teleop is running.

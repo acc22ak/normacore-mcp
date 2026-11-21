@@ -12,6 +12,11 @@ Tools: `look`, `list_cameras`, `get_robot_state`, `move_joints`, `nudge_joints`,
 mirroring on/off; motion tools refuse while it's on), `set_camera_role` (name cameras "desk" / "gripper" so
 `look("desk")` works; saved in `data/cameras.json`).
 
+**Fast mode:** `go_to` (one smooth move) and `play_motion` (a whole sequence of keyframes or a dense recording,
+with `speed_scale`) run inside the server at ~20 Hz with safety checks, so Claude plans once and checks once instead
+of thinking between every step. `stop_motion`, `hold` and `relax` stop a running motion. `move_joints`/`nudge_joints`
+stay as the slow, careful mode for learning.
+
 ---
 
 ## 0. Run everything on the MacBook
@@ -106,7 +111,7 @@ claude mcp add normacore \
   -e FOLLOWER_BUS=<FOLLOWER_SERIAL> \
   -- $PWD/.venv/bin/python $PWD/server.py
 ```
-Then in `claude`: `/mcp` should list `normacore` with 10 tools.
+Then in `claude`: `/mcp` should list `normacore` with 13 tools.
 Then name the cameras once: ask Claude to `look`, tell which picture is which, and `set_camera_role` them
 (or set `CAMERAS`). Station itself has no idea which camera is the gripper cam.
 
@@ -131,6 +136,11 @@ env = { NORMA_CORE_REPO = "/Users/you/norma-core", STATION_HOST = "localhost", F
 | `TEACH_MAX_POSE_DIFF` | `0.2` | `teach_mode(on)` refuses if leader/follower poses differ more than this (normalized) |
 | `CAMERAS` | — | default camera roles, e.g. `desk=usbvideo/9c1e,gripper=3f2a` (queue id or unique hash prefix); `data/cameras.json` wins |
 | `CAMERAS_FILE` | `data/cameras.json` | where `set_camera_role` saves roles |
+| `MAX_VEL_NORM` | `0.5` | fast-mode speed cap per joint (normalized range per second); untuned, start low |
+| `MOTION_RATE_HZ` | `20` | fast-mode control rate |
+| `CURRENT_LIMIT` / `CURRENT_LIMITS` | `100` / — | fast-mode collision limit (same units as Station's current threshold); per motor e.g. `8:40,5:60` |
+| `TRACK_ERR_MAX` / `TRACK_ERR_TICKS` | `0.10` / `5` | abort when a joint lags its target this much for this many ticks |
+| `LIMITS_FILE` | `data/limits.json` | optional soft limits per joint, e.g. `{"2": [0.1, 0.9]}` |
 | `FRAME_MAX_AGE_S` | `2.0` | `look` marks a camera frame older than this as STALE (e.g. camera unplugged or frozen). Assumes station and MCP share a clock |
 | `MCP_TRANSPORT` | `stdio` | `streamable-http` to run the server yourself (e.g. in a tmux pane to watch logs) |
 | `MCP_HOST` / `MCP_PORT` | `127.0.0.1` / `8790` | listen address for `streamable-http` |
@@ -162,5 +172,6 @@ Tips:
 ## Offline self-test (no robot needed)
 ```bash
 .venv/bin/python tests/offline_test.py . ~/norma-core
+.venv/bin/python tests/test_motion.py .
 ```
 Runs every tool against simulated station data.
