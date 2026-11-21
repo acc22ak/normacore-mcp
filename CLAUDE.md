@@ -9,9 +9,23 @@ NormaCore **Station** over TCP :8888 and exposes the tools `look`, `list_cameras
 `get_robot_state`, `move_joints`, `nudge_joints`, `set_gripper`, `hold` and `relax`.
 `README.md` has the setup steps for people. This file is context for agents.
 
-**Your role:** you are the robot's operator *and* its developer. Plan with skills, verify on camera, learn new skills
-the moment a human demonstrates one, and keep improving skills (data) and tools (code). Follow the
-**Learning protocol** and **Roadmap** sections below, and record what you discover under **Learned facts**.
+**Your role:** you are the robot's operator *and* its developer. You learn tasks **by yourself** (no human
+demonstration needed), turn your own successes into fast skills, practise them until they're fast, and keep improving
+skills (data) and tools (code). Priorities, in order: **safety, then simplicity for the human, then speed.**
+
+## Default flow: the human just names a task
+When asked to do a task ("move the cube from A to B"), handle everything yourself:
+1. `list_skills`. If a skill matches with status `ok`/`flaky`/`needs_check`: **one** `look("desk")` to confirm the
+   object is on its spot → `run_skill(name)` → **one** `look("desk")` → `report_skill_result(run_id, success, note)`.
+   Tell the human the result and the new speed in one line.
+2. If no skill matches: **learn it** (Learning protocol §1): `start_attempt(task)`, solve it slowly with both cameras,
+   verify, `save_attempt_as_skill(name)`. Then tell the human it's learned and how fast the skill will be.
+3. If a fast run fails: say why in one line, finish the task in slow camera-guided mode, and if your slow fix differs
+   from the skill, save it as a new version (`start_attempt` before the fix, `save_attempt_as_skill(..., overwrite=True)`).
+4. "Practise X" / "get faster": loop step 1. If X has a reverse skill (e.g. `a_to_b` and `b_to_a`), alternate them so
+   no human has to reset the scene; learn the reverse first if it's missing. Stop on 2 failures in a row and report.
+Performance habits: don't think between waypoints (the skill runs in one call); one look before and one after a fast
+run; prefer `look("desk")` (one image) and use `look("gripper")` only for fine alignment; keep replies to the human short.
 
 Upstream: https://github.com/norma-core/norma-core (MIT). We import its pure-python
 client (`software/station/shared/station_py`) and the generated protobuf readers/writers
@@ -170,7 +184,8 @@ Pitch: *"Show it once by hand, then just tell it what to do. It watches, acts, c
 | P0 | Fast playback engine | `motion.py` (pure logic), `server.py` (`go_to`, `play_motion`, `stop_motion`) | ~20 Hz streaming of eased keyframes or dense recordings, `speed_scale`, per-joint velocity cap (`MAX_VEL_NORM`), soft limits (`data/limits.json`); aborts + holds on servo error bits (voltage ignored like Station), over-current (=collision), tracking error, stale state, stop/hold/relax, cancellation (shielded hold); gripper over-current = grasp (stops squeezing) | done, offline-tested (simulated servos); **not yet tried on hardware** |
 | P0 | Teach mode + mirroring guard | `server.py` | `teach_mode(on/off)` starts/stops Station's built-in leader→follower mirroring; every motion tool refuses while the follower is a mirroring target | done, offline-tested; **not yet tried on hardware** |
 | P0 | Poses | `poses.py`, `data/poses.json` | `save_pose`, `list_poses`, `go_to_pose` | todo |
-| P0 | Demonstration capture | `learn.py` (pure), `server.py` | `skill_from_history(name, seconds=60)`: reads the last N s of `st3215/inference` (rate measured from bus stamps; offsets >255 encoded little-endian), trims idle, ~20 Hz dense motion + raw + keyframe summary + calibration snapshot | done, offline-tested; **not yet tried on hardware** |
+| P0 | Self-learning | `learn.py` (pure), `server.py` | `start_attempt(task)` + `save_attempt_as_skill(name)`: Claude's own slow, verified attempt -> rest poses -> straight-line merge (gripper changes kept) -> timed keyframes + raw + start pose + calibration snapshot | done, offline-tested; **not yet tried on hardware** |
+| P0 | Demonstration capture (optional) | `learn.py` (pure), `server.py` | `skill_from_history(name, seconds=60)`: reads the last N s of `st3215/inference` (rate measured from bus stamps; offsets >255 encoded little-endian), trims idle, ~20 Hz dense motion + raw + keyframe summary + calibration snapshot | done, offline-tested; **not yet tried on hardware** |
 | P1 | Skills + practice ladder | `server.py`, `data/skills/*.json`, `data/runs.jsonl` | `list_skills`, `run_skill` (fast, one call), `report_skill_result`; ladder 0.5 → 0.75 → 1.0 → … after **2 successes in a row**, one level down on failure; engine abort = failure; calibration change → replay from raw at ≤0.5 + `needs_check` | done, offline-tested; **not yet tried on hardware** |
 | P1 | Drift handling | `motion.py`, `poses.py`, `data/compensation.json` | calibration snapshot + raw positions in skills/poses, replay-from-raw when ranges changed, goal-vs-present tracking error, per-joint compensation, `check_drift` (home pose + landmark). See Learning protocol §6. `range_frozen` + warning in `get_robot_state` already done | partly done |
 | P1 | Vision | `vision.py` | `look(grid=True)` labelled A1–C3 grid on the desk cam; `find_objects(color)` HSV blobs → pixel + cell | todo |
@@ -181,7 +196,7 @@ Pitch: *"Show it once by hand, then just tell it what to do. It watches, acts, c
 
 Final tool surface: perception (`look`, `list_cameras`, `set_camera_role`, `find_objects`, `gripper_status`, `get_robot_state`), motion (`go_to`,
 `play_motion`, `stop_motion`, `go_to_pose`, `nudge_joints`, `grasp`, `release`), planned (`edit_skill`, `pick`, `place`), learning
-(`teach_mode`, `skill_from_history`, `save_pose`), skills (`list_skills`, `run_skill`, `report_skill_result`), safety (`hold`, `relax`).
+(`start_attempt`, `save_attempt_as_skill`, optional `teach_mode` + `skill_from_history`, `save_pose`), skills (`list_skills`, `run_skill`, `report_skill_result`), safety (`hold`, `relax`).
 **If a tool you need for the protocol below doesn't exist yet, build it (roadmap order) rather than improvising with raw joint moves.**
 
 ---
@@ -189,22 +204,22 @@ Final tool surface: perception (`look`, `list_cameras`, `set_camera_role`, `find
 # Learning protocol: how Claude learns and improves skills
 "Skill" below means a **robot skill** (a JSON file in `data/skills/`), not a Claude Code skill.
 
-## 1. When a human shows you something → make a skill right away
-Teaching setup: call `teach_mode(on)` (Station's built-in leader→follower mirroring), so the follower copies the
-leader arm while the human demonstrates. Mirroring has its own current protection, so demos are safe to record.
-Triggers: "watch this", "learn this", "save what I just did as X", "remember this". If the human starts demonstrating
-and mirroring is off, offer to turn teach mode on.
-1. **Capture**: right after the demo, `skill_from_history(name, seconds=60, description=...)` (default: the last
-   minute; use a smaller N if other movement happened before the demo). It uses the **follower** positions, trims
-   the still time before/after, and saves `data/skills/<name>.json` with status `"new"` at practice speed 0.5.
-   Check the returned `history.covered_s` and `duration_s`: if they don't match what the human did, say so.
-2. **Understand it**: `look` now (the end state) and write a one-sentence description with preconditions
-   (e.g. "cube on spot A, gripper empty") into the skill's `description`/`preconditions`.
-   (Camera frames at start/end are not stored automatically yet.)
-3. **Confirm by replay**: `teach_mode(on=False)`, put the object back on its marked spot, tell the human, then
-   `run_skill(name)` (runs at 0.5) and judge it with one `look`.
-4. Commit the new skill to git (`learn: add skill <name>`).
+## 1. Learning a new task by yourself (default)
+No human demonstration needed: you solve the task once, slowly, and your own successful attempt becomes the skill.
+1. `start_attempt(task)` marks the start (station time), so nothing before it is recorded.
+2. **Solve it carefully**: look with both cameras, move with `go_to` / `move_joints` / `nudge_joints` / `set_gripper`.
+   Think between moves: every pose where the arm **rests** becomes a candidate keyframe, so make deliberate moves
+   (approach above the object, descend, close the gripper, lift, move, release, retreat) rather than wiggling.
+3. **Verify** with `look` that the task really succeeded. If not, `start_attempt` again and retry; never save a failure.
+4. `save_attempt_as_skill(name, description)` keeps only the rest poses, merges steps that lie on a straight line
+   (gripper open/close moments always stay), and times the moves from `SKILL_BASE_VEL` (0.25 norm/s at speed 1.0).
+   Tested offline: a 27 s step-by-step attempt became 4 poses, ~6 s at speed 1.0, ~3 s at 2.0.
+5. Name skills `<what>_<from>_to_<to>` (e.g. `cube_a_to_b`); write preconditions into the description ("cube on A,
+   gripper empty"). Commit the new skill to git (`learn: add skill <name>`).
+6. First replay is at speed 0.5 (practice ladder). Reset the scene first: put the object back, or run the reverse skill.
 
+Optional, if the human prefers to show it: `teach_mode(on=True)`, the human moves the leader arm, then
+`skill_from_history(name, seconds)` (dense recording of the follower). Same practice ladder afterwards.
 ## 2. Every time you run a skill → practice ladder (this is how it gets fast)
 - Before: `look` once, check the preconditions (object on its marked spot?). Then `run_skill(name)`: the whole
   motion runs in one call, no thinking in between.

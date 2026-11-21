@@ -72,5 +72,36 @@ check("failure at bottom stays at 0.5", p["speed_scale"] == 0.5)
 p = {"level": len(L.SPEED_LEVELS) - 1, "streak": 1}
 check("top level stays at max", L.ladder_update(p, True)["speed_scale"] == L.SPEED_LEVELS[-1])
 
+# --- self-learning: compress a slow Claude-style attempt ---
+def claude_attempt():
+    samples, t, pose = [], 0.0, {1: 0.5, 2: 0.3, 8: 0.9}
+    def hold(sec):
+        nonlocal t
+        for _ in range(int(sec * 20)):
+            samples.append((t, dict(pose), {k: int(1000 + 2000 * v) for k, v in pose.items()})); t += 0.05
+    def move(j, d, steps=6):
+        nonlocal t
+        for _ in range(steps):
+            pose[j] += d / steps
+            samples.append((t, dict(pose), {k: int(1000 + 2000 * v) for k, v in pose.items()})); t += 0.05
+    hold(2)
+    for _ in range(6): move(2, 0.05); hold(2)          # reach in 6 small steps, thinking 2 s each
+    for _ in range(2): move(8, -0.3); hold(2)          # close gripper in 2 steps
+    for _ in range(3): move(2, -0.05); hold(2)         # lift in 3 steps
+    return samples, t
+att, att_s = claude_attempt()
+rest = L.pause_keyframes(att)
+check("every thinking pause becomes a rest pose", len(rest) == 12, len(rest))
+poses = L.simplify_path(rest, gripper_id=8)
+shape = [(round(p[0][2], 2), round(p[0][8], 2)) for p in poses]
+check("steps on a line merge; gripper close is one move", shape == [(0.3, 0.9), (0.6, 0.9), (0.6, 0.3), (0.45, 0.3)], shape)
+kf = L.timed_keyframes(poses, base_vel=0.25)
+total = sum(k["duration_s"] for k in kf)
+check("attempt ~27 s -> skill ~6 s at speed 1.0", att_s > 25 and 5.5 < total < 7.0, (att_s, total))
+check("keyframes carry raw positions", all("raw" in k for k in kf))
+corner = [({1: 0.0}, {}), ({1: 0.5}, {}), ({1: 0.0}, {})]   # go out and come back: must keep the turn
+check("a real turn is kept, not merged", len(L.simplify_path(corner, gripper_id=8)) == 3)
+check("still recording -> one pose pair", len(L.pause_keyframes([(i * 0.05, {1: 0.5}, {1: 2000}) for i in range(40)])) == 2)
+
 print(f"\n{'ALL PASSED' if not FAILS else f'{len(FAILS)} FAILED: {FAILS}'}")
 sys.exit(1 if FAILS else 0)

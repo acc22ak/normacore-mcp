@@ -17,6 +17,7 @@ _TMP = tempfile.mkdtemp(prefix="normacore-test-")
 os.environ["CAMERAS_FILE"] = os.path.join(_TMP, "cameras.json")  # never write into the repo's data/
 os.environ["SKILLS_DIR"] = os.path.join(_TMP, "skills")
 os.environ["RUNS_FILE"] = os.path.join(_TMP, "runs.jsonl")
+os.environ["ATTEMPT_FILE"] = os.path.join(_TMP, "attempt.json")
 import server as S
 from PIL import Image as PI
 from target.gen_python.protobuf.drivers.st3215 import st3215
@@ -371,6 +372,7 @@ async def main():
 
     await motion_engine_tests()
     await learning_tests()
+    await self_learning_tests()
 
     tools = sorted(t.name for t in await S.mcp.list_tools())
     print("tools:", tools)
@@ -526,6 +528,88 @@ async def learning_tests():
         json.dump(hand, f)
     await expect_error("composite step gives a clear error", S.run_skill("wave"), "composite")
     SIM["on"] = False
+
+def claude_attempt_history(t0_ns, hz=25):
+    """Follower history of a Claude-style attempt: 5 s of unrelated movement BEFORE the attempt,
+    then reach in 6 small steps (2 s thinking each), close gripper in 2 steps, lift in 3 steps."""
+    out = []
+    t = [-5.0]
+    def emit(p):
+        out.append(history_entry(t0_ns + int(t[0] * 1e9), dict(p))); t[0] += 1 / hz
+    while t[0] < 0:                                     # unrelated wiggle before start_attempt
+        emit({2: 2000 + int(300 * abs(((t[0] * 2) % 2) - 1)), 8: 2800})
+    pose = {2: 2000, 8: 2800}
+    def hold(sec):
+        for _ in range(int(sec * hz)): emit(pose)
+    def move(j, d, steps=6):
+        for _ in range(steps):
+            pose[j] += d // steps; emit(pose)
+    hold(2)
+    for _ in range(6): move(2, 60); hold(2)
+    for _ in range(2): move(8, -300); hold(2)
+    for _ in range(3): move(2, -60); hold(2)
+    return out
+
+async def self_learning_tests():
+    print("\n--- self-learning: Claude's own attempt -> fast skill ---")
+    MIRROR.update(present=False); MIRROR["links"].clear(); MIRROR["modes"].clear()
+    await expect_error("save without start_attempt is refused", S.save_attempt_as_skill("x"), "start_attempt")
+    t0 = 2 * 10**12
+    SIM.update(on=False, stamp=t0)                      # "now" for start_attempt = t0
+    r = await S.start_attempt("move cube from A to B")
+    check("start_attempt marks the station time", r["since_ns"] == t0, str(r))
+    HISTORY[:] = claude_attempt_history(t0)
+    r = await S.save_attempt_as_skill("a_to_b")
+    check("attempt saved as a skill", r["kept_poses"] == 4, str(r))
+    check("movement before start_attempt ignored", r["attempt_s"] < 30, r["attempt_s"])
+    check("minutes of thinking -> seconds of skill", r["attempt_s"] > 25 and r["skill_s"]["1.0"] < 8 and r["skill_s"]["2.0"] < 4, str(r))
+    sk = json.load(open(os.path.join(os.environ["SKILLS_DIR"], "a_to_b.json")))
+    check("self skill: source=self, keyframes with raw, start pose, ladder at 0.5",
+          sk["source"]["type"] == "self" and all("raw" in k for k in sk["keyframes"])
+          and sk["start_raw"]["2"] == 2000 and sk["practice"]["speed_scale"] == 0.5)
+    await expect_error("attempt is consumed after saving", S.save_attempt_as_skill("a_to_b2"), "start_attempt")
+    SIM.update(on=False, stamp=3 * 10**12); await S.start_attempt("nothing")
+    HISTORY[:] = [history_entry(3 * 10**12 + i * 40_000_000, {2: 2000, 8: 2800}) for i in range(100)]
+    await expect_error("attempt without movement is refused", S.save_attempt_as_skill("still"), "didn't move")
+    HISTORY[:] = []
+
+    reset_follower()
+    MODEL["FOLLOW"][2].update(pos=2300, goal=2300)      # arm NOT at the learned start pose
+    MODEL["FOLLOW"][8].update(pos=2800, goal=2800)
+    r = await S.run_skill("a_to_b")
+    check("self skill runs fast in one call", r["completed"] and r["speed_scale"] == 0.5, str(r))
+    check("it first glides to the learned start, then ends at the learned end pose",
+          abs(MODEL["FOLLOW"][2]["pos"] - 2180) <= 25 and abs(MODEL["FOLLOW"][8]["pos"] - 2200) <= 25,
+          (MODEL["FOLLOW"][2]["pos"], MODEL["FOLLOW"][8]["pos"]))
+    res = await S.report_skill_result(r["run_id"], True)
+    check("practice ladder applies to self skills", res["status"] == "ok" and res["practice"]["streak"] == 1, str(res))
+    ls = {s["name"]: s for s in await S.list_skills()}
+    check("list_skills marks it self-learned", ls["a_to_b"]["source"] == "self", str(ls["a_to_b"]))
+
+    # re-calibration after learning: start pose + keyframes replay from raw, then get re-based on success
+    reset_follower(); MODEL["FOLLOW"][8].update(pos=2800, goal=2800)
+    for m in MODEL["FOLLOW"].values():
+        m["rmin"] = 1100
+    r = await S.run_skill("a_to_b")
+    check("self skill after re-calibration: replays from raw, ends at same raw pose",
+          r["completed"] and r["calibration_changed"] and abs(MODEL["FOLLOW"][2]["pos"] - 2180) <= 25, str(r))
+    res = await S.report_skill_result(r["run_id"], True)
+    sk = json.load(open(os.path.join(os.environ["SKILLS_DIR"], "a_to_b.json")))
+    check("success re-bases start pose + keyframes to the new calibration",
+          res["rebased_to_new_calibration"] and sk["calibration"]["ranges"]["2"][0] == 1100
+          and abs(float(sk["start_pose"]["2"]) - (2000 - 1100) / 1900) < 0.01
+          and sk["last_good"]["start_pose"] is not None, (sk["start_pose"].get("2"), sk["calibration"]["ranges"]["2"]))
+    reset_follower(); MODEL["FOLLOW"][8].update(pos=2800, goal=2800)
+    for m in MODEL["FOLLOW"].values():
+        m["rmin"] = 1100
+    r = await S.run_skill("a_to_b")
+    check("next run: no rebuild needed, still reaches the learned pose",
+          r["completed"] and not r["calibration_changed"] and abs(MODEL["FOLLOW"][2]["pos"] - 2180) <= 25, str(r))
+    await S.report_skill_result(r["run_id"], True)
+    for m in MODEL["FOLLOW"].values():
+        m["rmin"] = 1000
+    SIM["on"] = False
+
 
 def reset_follower():
     for m in MODEL["FOLLOW"].values():

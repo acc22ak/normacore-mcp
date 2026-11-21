@@ -17,7 +17,13 @@ with `speed_scale`) run inside the server at ~20 Hz with safety checks, so Claud
 of thinking between every step. `stop_motion`, `hold` and `relax` stop a running motion. `move_joints`/`nudge_joints`
 stay as the slow, careful mode for learning.
 
-**Learn → practice → fast:** demonstrate with `teach_mode(on=True)`, then `skill_from_history("pick_a", seconds=60)`
+**Simplest use: just name the task.** Say "move the cube from spot A to spot B". If Claude has no skill for it, it
+**learns it by itself**: `start_attempt`, solves it slowly with both cameras, verifies, then `save_attempt_as_skill` turns
+its own attempt into a fast skill (thinking pauses and small steps removed: a ~27 s attempt became a ~3–6 s skill in
+tests). Next time it runs the skill in one call. Say "practise it" to have it speed itself up (it alternates A→B and
+B→A, so nobody has to reset the cube).
+
+**Optional, showing it by hand —** **Learn → practice → fast:** demonstrate with `teach_mode(on=True)`, then `skill_from_history("pick_a", seconds=60)`
 saves what the follower did in the last minute as a skill. `run_skill` plays it in one call; after each run Claude
 `look`s once and calls `report_skill_result`. Every **2 successes in a row** raise the speed one level
 (0.5 → 0.75 → 1.0 → …), a failure lowers it. Skills live in `data/skills/`, runs in `data/runs.jsonl`.
@@ -117,7 +123,7 @@ claude mcp add normacore \
   -e FOLLOWER_BUS=<FOLLOWER_SERIAL> \
   -- $PWD/.venv/bin/python $PWD/server.py
 ```
-Then in `claude`: `/mcp` should list `normacore` with 17 tools.
+Then in `claude`: `/mcp` should list `normacore` with 19 tools.
 Then name the cameras once: ask Claude to `look`, tell which picture is which, and `set_camera_role` them
 (or set `CAMERAS`). Station itself has no idea which camera is the gripper cam. Roles are saved by the
 camera's USB vendor:product:serial, so they survive replugging it or moving it to another port.

@@ -1106,8 +1106,10 @@ def _entry_stamp(state: dict[str, dict]) -> int:
     return max((b["stamp_ns"] for b in state.values()), default=0)
 
 
-async def _read_history(serial_hint: str | None, seconds: float, hz: float = 20.0) -> tuple[str, list[tuple], dict]:
-    """Follower samples (t, norm, raw) from the last `seconds` of st3215/inference.
+async def _read_history(serial_hint: str | None, seconds: float | None = None, hz: float = 20.0,
+                        since_ns: int | None = None) -> tuple[str, list[tuple], dict]:
+    """Follower samples (t, norm, raw) from the last `seconds` of st3215/inference, or (since_ns)
+    everything since a station stamp, e.g. the one start_attempt saved.
 
     Reads with a server-side stride so a long span stays fast (one entry per ~1/(2*hz) s), and
     grows the read until the stamps cover `seconds`. Fewer seconds come back only when Station's
@@ -1118,6 +1120,9 @@ async def _read_history(serial_hint: str | None, seconds: float, hz: float = 20.
         raise RuntimeError("no data in st3215/inference")
     serial = pick_bus(probe[-1], serial_hint)
     rate = L.estimate_rate_hz([b[serial]["stamp_ns"] for b in probe if serial in b]) or 20.0
+    if since_ns is not None:
+        newest_probe = max(b[serial]["stamp_ns"] for b in probe if serial in b)
+        seconds = max(1.0, (newest_probe - since_ns) / 1e9 + 1.0)
     entry_rate = L.estimate_rate_hz([_entry_stamp(b) for b in probe]) or rate  # all buses share the queue
     if len({_entry_stamp(b) for b in probe}) < len(probe):  # several entries per stamp: count entries, not stamps
         span = (_entry_stamp(probe[-1]) - _entry_stamp(probe[0])) / 1e9
@@ -1149,6 +1154,10 @@ async def _read_history(serial_hint: str | None, seconds: float, hz: float = 20.
                            f"(last read: {len(entries)} entries, step {step}); try fewer seconds")
     newest = snaps[-1]["stamp_ns"]
     snaps = [b for b in snaps if b["stamp_ns"] >= newest - int(seconds * 1e9)]
+    if since_ns is not None:
+        snaps = [b for b in snaps if b["stamp_ns"] >= since_ns]
+        if not snaps:
+            raise RuntimeError("no robot history since start_attempt")
     uncal = sorted({m["joint"] for b in snaps for m in b["motors"].values() if m["position_norm"] is None})
     if uncal:
         raise RuntimeError(f"joints {uncal} were uncalibrated during the recording; calibrate + Save first")
@@ -1159,7 +1168,11 @@ async def _read_history(serial_hint: str | None, seconds: float, hz: float = 20.
     covered_s = round((newest - base) / 1e9, 2)
     info = {"entries_read": len(entries), "read_step": step, "rate_hz": round(rate, 1),
             "covered_s": covered_s, "requested_s": seconds}
-    if covered_s < seconds - 0.5:
+    if since_ns is not None:
+        info["requested_s"] = "since start_attempt"
+        if base > since_ns + int(0.5e9):
+            info["note"] = f"Station's history starts {(base - since_ns) / 1e9:.1f} s after start_attempt"
+    elif covered_s < seconds - 0.5:
         info["note"] = f"Station's history only goes back {covered_s:g} s"
     return serial, samples, {"info": info, "last": snaps[-1]}
 
@@ -1214,6 +1227,83 @@ async def skill_from_history(name: str, seconds: float = 60.0, description: str 
             "next": "teach_mode(on=False), then run_skill(name) at practice speed 0.5 with a human watching"}
 
 
+SKILL_BASE_VEL = float(os.environ.get("SKILL_BASE_VEL", "0.25"))  # norm/s peak at speed_scale 1.0
+ATTEMPT_FILE = Path(os.environ.get("ATTEMPT_FILE", str(Path(__file__).resolve().parent / "data" / "attempt.json")))
+
+
+@mcp.tool()
+async def start_attempt(task: str, bus: str | None = None) -> dict:
+    """SELF-LEARNING step 1: mark the start of your own attempt at a task.
+
+    Then solve the task yourself, carefully: look with both cameras, move with go_to /
+    move_joints / nudge_joints / set_gripper, and verify with look. Pause (just think) between
+    moves: every pose where the arm rests becomes a candidate keyframe. When the task is done
+    AND verified on camera, call save_attempt_as_skill. If it failed, call start_attempt again.
+    """
+    buses = await read_buses()
+    serial = pick_bus(buses, bus)
+    attempt = {"task": task, "bus": serial, "since_ns": buses[serial]["stamp_ns"],
+               "started_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    _save_json(ATTEMPT_FILE, attempt)
+    return {**attempt, "next": "solve the task slowly with the cameras, verify success, then save_attempt_as_skill"}
+
+
+@mcp.tool()
+async def save_attempt_as_skill(name: str, description: str = "", overwrite: bool = False) -> dict:
+    """SELF-LEARNING step 2: turn your successful attempt (since start_attempt) into a fast skill.
+
+    Keeps only the poses where the arm rested, merges poses that lie on a straight line
+    (gripper open/close moments are always kept), and times each move from SKILL_BASE_VEL.
+    The thinking time and the step-by-step crawl disappear, so a minutes-long attempt becomes
+    a skill of a few seconds. Only call this after verifying with `look` that the task succeeded.
+    """
+    try:
+        attempt = json.loads(ATTEMPT_FILE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise RuntimeError("no attempt in progress: call start_attempt(task) before solving the task") from None
+    path = _skill_path(name)
+    old = None
+    if path.exists():
+        if not overwrite:
+            raise RuntimeError(f"skill {name!r} exists; pass overwrite=True to save this attempt as a new version")
+        old = _load_skill(name)
+    serial, samples, meta = await _read_history(attempt["bus"], since_ns=int(attempt["since_ns"]))
+    rest = L.pause_keyframes(samples)
+    poses = L.simplify_path(rest, GRIPPER_ID)
+    if len(poses) < 2 or not L.has_motion(poses):
+        raise RuntimeError("the arm didn't move since start_attempt: nothing to learn")
+    keyframes = L.timed_keyframes(poses, SKILL_BASE_VEL)
+    skill_s = round(sum(k["duration_s"] for k in keyframes), 2)
+    last = meta["last"]["motors"]
+    version = (old or {}).get("version", 0) + 1
+    skill = {
+        "name": name,
+        "description": description or attempt["task"],
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "bus": serial,
+        "source": {"type": "self", "task": attempt["task"], "attempt_s": meta["info"]["covered_s"],
+                   "rest_poses": len(rest), "kept_poses": len(poses), "skill_s_at_1x": skill_s,
+                   "history": meta["info"]},
+        "calibration": {"frozen": all(m["range_frozen"] for m in last.values()),
+                        "ranges": {str(j): [m["range_min"], m["range_max"]] for j, m in last.items()}},
+        "start_pose": {str(j): v for j, v in poses[0][0].items()},
+        "start_raw": {str(j): int(v) for j, v in poses[0][1].items()},
+        "keyframes": keyframes,
+        "practice": {"level": 0, "streak": 0, "speed_scale": L.SPEED_LEVELS[0]},
+        "status": "new",
+        "version": version,
+        "stats": {"runs": 0, "success": 0},
+        "changelog": (old or {}).get("changelog", []) + [{"version": version,
+                     "note": f"self-learned: {meta['info']['covered_s']} s attempt -> {len(poses)} poses"}],
+    }
+    _save_json(path, skill)
+    ATTEMPT_FILE.unlink(missing_ok=True)
+    return {"saved": str(path), "attempt_s": meta["info"]["covered_s"], "rest_poses": len(rest),
+            "kept_poses": len(poses), "skill_s": {str(s): round(skill_s / s, 2) for s in (0.5, 1.0, 2.0)},
+            "warning": None if skill["calibration"]["frozen"] else "calibration not saved/frozen: press Save in the web UI",
+            "next": "reset the scene (or learn the reverse task), then run_skill(name) and report_skill_result"}
+
+
 @mcp.tool()
 async def list_skills() -> list[dict]:
     """Saved skills with status, practice speed, success stats and duration."""
@@ -1228,7 +1318,8 @@ async def list_skills() -> list[dict]:
                     "status": s.get("status"), "version": s.get("version"),
                     "speed_scale": (s.get("practice") or {}).get("speed_scale"),
                     "streak": (s.get("practice") or {}).get("streak"), "stats": s.get("stats"),
-                    "duration_s": (s.get("source") or {}).get("duration_s")})
+                    "source": (s.get("source") or {}).get("type"),
+                    "duration_s": (s.get("source") or {}).get("duration_s") or (s.get("source") or {}).get("skill_s_at_1x")})
     return out
 
 
@@ -1283,6 +1374,11 @@ def _skill_waypoints(skill: dict, motors: dict) -> tuple[list[dict], dict[int, s
         wps = [{"t": p["t"], "joints": p["joints"]} for p in points]
     elif "keyframes" in skill:  # hand-written skill: [{"joints"/"gripper": ..., "duration_s": ...}]
         field, points, wps = "keyframes", [], []
+        if "start_pose" in skill:  # self-learned: glide to where the attempt began, at the skill's pace
+            start = rebuild({"raw": skill.get("start_raw", {})}, dict(skill["start_pose"]))
+            dist = max((abs(float(v) - (motors[int(k)]["position_norm"] or 0.0)) for k, v in start.items()
+                        if int(k) in motors), default=0.0)
+            wps.append({"joints": start, "duration_s": max(0.2, 1.5 * dist / SKILL_BASE_VEL)})
         composite = [i for i, k in enumerate(skill["keyframes"]) if "skill" in k]
         if composite:
             raise RuntimeError(f"keyframes {composite}: composite steps {{'skill': ...}} aren't supported by "
@@ -1305,6 +1401,7 @@ def _skill_waypoints(skill: dict, motors: dict) -> tuple[list[dict], dict[int, s
     rebased = None
     if changed:
         rebased = {"field": field, "points": points,
+                   **({"start_pose": wps[0]["joints"]} if field == "keyframes" and "start_pose" in skill else {}),
                    "calibration": {"frozen": all(m["range_frozen"] for m in motors.values()),
                                    "ranges": {str(j): [lo, hi] for j, (lo, hi) in current.items()}}}
     return wps, changed, rebased
@@ -1386,6 +1483,9 @@ async def report_skill_result(run_id: str, success: bool, note: str = "") -> dic
         skill["last_good"] = {"version": old_version, rebased["field"]: skill.get(rebased["field"]),
                               "calibration": skill.get("calibration")}
         skill[rebased["field"]] = rebased["points"]
+        if "start_pose" in rebased:
+            skill["last_good"]["start_pose"] = skill.get("start_pose")
+            skill["start_pose"] = rebased["start_pose"]
         skill["calibration"] = rebased["calibration"]
         skill["version"] = old_version + 1
         skill.setdefault("changelog", []).append({
