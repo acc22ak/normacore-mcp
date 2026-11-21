@@ -93,6 +93,8 @@ pre{overflow-x:auto;background:var(--plane);padding:16px 18px;margin:0;font:14px
         <li><a href="#registers">Servo registers</a></li>
       </ol></li>
     <li><a href="#mcp-tools">MCP tools reference</a></li>
+    <li><a href="#cameras">Cameras: gripper and desk</a>
+      <ol><li><a href="#camera-processing">What the station does to frames</a></li><li><a href="#mcp-cameras">How the MCP server reads them</a></li></ol></li>
     <li><a href="#plan">Team plan: teach, then tell</a>
       <ol>
         <li><a href="#learning-loop">Learning loop</a></li>
@@ -487,6 +489,116 @@ pre{overflow-x:auto;background:var(--plane);padding:16px 18px;margin:0;font:14px
         <div class="step"><b>FOLLOWER_BUS</b><span>Serial of the arm the tools may move. Not set yet: copy it from the bus card in the viewer.</span></div>
         <div class="step"><b>MCP_TRANSPORT</b><span><code>stdio</code> (default) or <code>streamable-http</code>, with <code>MCP_HOST</code> / <code>MCP_PORT</code> (8790)</span></div>
         <div class="step"><b>MOVE_SPEED</b><span>600 steps/s; <code>GRIPPER_MOTOR_ID</code> 8 (6 on an SO-101)</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="cameras" class="band">
+  <div class="wrap">
+    <h2>Cameras: both are handled, but the station doesn't know which is which</h2>
+    <p>The <code>usbvideo</code> driver picks up every UVC camera on its own. It checks for new devices once a second, so plugging in a camera while the station runs works too. Each camera gets its own queue, named after an md5 hash of the device's unique id: <code>usbvideo/&lt;hash&gt;</code>. The id is fixed per device, so the queue name stays the same across restarts and you keep each camera's history.</p>
+    <figure style="margin:18px 0 0">
+      <div class="plate">
+<svg viewBox="0 0 1100 250" role="img" aria-label="The gripper camera and the desk camera each feed the usbvideo driver, which writes one queue per camera. The MCP look tool returns both frames, and the normvla inference feed bundles both into each synced frame." font-family="Hanken Grotesk, system-ui, sans-serif" font-size="13">
+  <defs><marker id="ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+  <g fill="var(--plane)" stroke="currentColor" stroke-width="1.2">
+    <rect x="20" y="40" width="190" height="64"/><rect x="20" y="146" width="190" height="64"/>
+  </g>
+  <rect x="290" y="40" width="190" height="170" fill="var(--plane2)" stroke="currentColor" stroke-width="1.2"/>
+  <g fill="var(--plane2)" stroke="currentColor" stroke-width="1.2">
+    <rect x="560" y="55" width="230" height="34"/><rect x="560" y="161" width="230" height="34"/>
+  </g>
+  <g fill="var(--bg)" stroke="currentColor" stroke-width="1.2">
+    <rect x="880" y="40" width="200" height="64"/><rect x="880" y="146" width="200" height="64"/>
+  </g>
+  <g fill="currentColor">
+    <text x="34" y="66" font-weight="700">Gripper camera</text><text x="34" y="86" fill="var(--mute)">on the follower arm</text>
+    <text x="34" y="172" font-weight="700">Desk camera</text><text x="34" y="192" fill="var(--mute)">fixed, sees the workspace</text>
+    <text x="304" y="68" font-weight="700">usbvideo driver</text>
+    <text x="304" y="90" fill="var(--mute)">finds cameras every 1 s</text>
+    <text x="304" y="110" fill="var(--mute)">MJPEG capture</text>
+    <text x="304" y="130" fill="var(--mute)">resize: shortest side</text>
+    <text x="304" y="148" fill="var(--mute)">= resize_target (224)</text>
+    <text x="304" y="168" fill="var(--mute)">same settings for</text>
+    <text x="304" y="186" fill="var(--mute)">every camera</text>
+    <text x="894" y="66" font-weight="700">MCP look</text><text x="894" y="86" fill="var(--mute)">one JPEG per camera</text>
+    <text x="894" y="172" font-weight="700">inference/normvla</text><text x="894" y="192" fill="var(--mute)">both images per frame</text>
+  </g>
+  <g fill="currentColor" font-family="JetBrains Mono, monospace" font-size="12.5">
+    <text x="572" y="77">usbvideo/&lt;hash A&gt;</text><text x="572" y="183">usbvideo/&lt;hash B&gt;</text>
+  </g>
+  <g stroke="currentColor" stroke-width="1.4" fill="none">
+    <line x1="212" y1="72" x2="288" y2="72" marker-end="url(#ah4)"/>
+    <line x1="212" y1="178" x2="288" y2="178" marker-end="url(#ah4)"/>
+    <line x1="482" y1="72" x2="558" y2="72" marker-end="url(#ah4)"/>
+    <line x1="482" y1="178" x2="558" y2="178" marker-end="url(#ah4)"/>
+    <line x1="792" y1="72" x2="878" y2="72" marker-end="url(#ah4)"/>
+    <line x1="792" y1="178" x2="878" y2="178" marker-end="url(#ah4)"/>
+    <line x1="792" y1="80" x2="878" y2="170" marker-end="url(#ah4)" stroke-dasharray="4 4"/>
+    <line x1="792" y1="170" x2="878" y2="80" marker-end="url(#ah4)" stroke-dasharray="4 4"/>
+  </g>
+  <g fill="currentColor" font-size="11.5" text-anchor="middle">
+    <text x="250" y="64">USB, UVC</text><text x="250" y="170">USB, UVC</text>
+  </g>
+</svg>
+      </div>
+      <figcaption>Both consumers read both queues: <code>look</code> returns one image per camera, and each <code>normvla</code> frame carries the images from every camera next to the joint positions.</figcaption>
+    </figure>
+
+    <h3 id="camera-processing" style="margin-top:26px">What the station does to each frame</h3>
+    <p>More than relaying, less than seeing. It reshapes, timestamps, stores and synchronises frames, but never looks at what's in them: no detection, no tracking, no lens calibration. Understanding the picture is left to the consumer (Claude via <code>look</code>, or a policy like SmolVLA).</p>
+    <div class="paths" style="margin-top:14px">
+      <div class="flow">
+        <div class="flowhead">Every frame (usbvideo driver)</div>
+        <div class="step"><b>Capture</b><span>Opens the best format the camera offers (<code>resolution: auto</code>) or exactly the size you set; usually MJPEG.</span></div>
+        <div class="step"><b>Thin</b><span><code>frame-skip</code> drops frames before any decoding, so skipped frames cost no CPU.</span></div>
+        <div class="step"><b>Decode</b><span>Converts MJPEG, YUV or RGB variants to RGB.</span></div>
+        <div class="step"><b>Resize</b><span>Bilinear resize so the shortest side is <code>resize_target</code> (224), keeping the aspect ratio.</span></div>
+        <div class="step"><b>Re-encode</b><span>Back to JPEG, stamped with the station's monotonic and wall clocks.</span></div>
+        <div class="step"><b>Store</b><span>Appended to <code>usbvideo/&lt;hash&gt;</code> and persisted, along with connect, disconnect and error events. Optional S3 offload.</span></div>
+      </div>
+      <div class="flow">
+        <div class="flowhead">For ML (inference driver)</div>
+        <div class="step"><b>Pair</b><span>About 10 times a second, takes the latest motor state and the latest frame from each camera.</span></div>
+        <div class="step"><b>Check timing</b><span>Drops the frame if a camera image is more than 100 ms away from the motor reading.</span></div>
+        <div class="step"><b>Square</b><span>Resizes each image to exactly 224 × 224. This stretches it: no crop, aspect ratio not kept.</span></div>
+        <div class="step"><b>Publish</b><span>Joints plus all images go to <code>inference/normvla</code> and to shared memory at <code>/tmp/normvla</code> for a policy process.</span></div>
+      </div>
+    </div>
+
+    <h3 id="mcp-cameras" style="margin-top:26px">How the MCP server reads them</h3>
+    <div class="cols">
+      <div class="flow">
+        <div class="flowhead">One look call, per camera</div>
+        <div class="step"><b>Find</b><span>Reads the latest <code>inference-states</code> entry and keeps queues of type <code>QDT_USB_VIDEO_FRAMES</code>.</span></div>
+        <div class="step"><b>Fetch</b><span>Reads the last 8 entries of each <code>usbvideo/…</code> queue over TCP 8888.</span></div>
+        <div class="step"><b>Pick</b><span>Takes the newest frames envelope, skipping connect and disconnect events, and its last JPEG.</span></div>
+        <div class="step"><b>Return</b><span>That JPEG goes to Claude unchanged as an MCP image, with a label from the camera's product name.</span></div>
+      </div>
+      <div>
+        <p>So Claude sees the <b>stored</b> frames: <code>resize_target</code> on the short side with the aspect ratio kept. It doesn't see the full camera resolution, or the stretched 224 × 224 images in <code>normvla</code>. Each call is a snapshot, not a stream.</p>
+        <p><b>Freshness check:</b> queues persist across restarts, so an unplugged or frozen camera still has a "latest" frame. Each <code>look</code> label now says how old its frame is, e.g. <code>camera 1: GRIPPER CAM (usbvideo/…) - frame 0.1 s old</code>. Past <code>FRAME_MAX_AGE_S</code> (2 s), or if the camera reported a disconnect after its last frame, the label says <b>STALE</b> and tells Claude not to plan or verify moves with it. The image still comes back, for diagnosis.</p>
+        <p class="note">Age = the MCP machine's clock minus the frame's station wall-clock stamp. That's exact here, because both run on the same Mac. A timestamp far in the future is reported as a clock mismatch instead. The <code>inference-states</code> stamp can't serve as the reference, because the station only writes it when another queue changes. Labels now keep each camera's index from <code>list_cameras</code>. Camera history still isn't exposed; the roadmap's <code>skill_from_history</code> will need it.</p>
+      </div>
+    </div>
+
+    <div class="cols" style="margin-top:24px">
+      <div>
+        <h3>What to watch out for</h3>
+        <div class="flow">
+          <div class="step"><b>No roles</b><span>Nothing in the station says "gripper" or "desk". A camera is a hash plus the product name the device reports. If both cameras are the same model, only the picture tells them apart.</span></div>
+          <div class="step"><b>Order</b><span>MCP <code>look</code> numbers cameras by sorting the queue names, so the order is stable but arbitrary. Check once which index is which.</span></div>
+          <div class="step"><b>One setting</b><span><code>usb-video</code> in <code>station.yaml</code> (resolution, <code>resize_target</code>, <code>frame-skip</code>) applies to all cameras. You can't give the desk cam more pixels than the gripper cam.</span></div>
+          <div class="step"><b>Detail</b><span>224 px is small for Claude to judge a grasp. The README suggests <code>resize_target: 480</code>; that also changes stored dataset frames.</span></div>
+          <div class="step"><b>Power</b><span>Two cameras streaming MJPEG need the powered USB hub; laptop ports may brown out.</span></div>
+        </div>
+      </div>
+      <div>
+        <h3>Checking it once they're plugged in</h3>
+        <p>The station log in pane 4.2 prints <code>Discovered new camera: …</code> for each one, and the home page at localhost:8889 shows a video tile per camera.</p>
+        <p>From Claude: <code>list_cameras</code> should return two <code>usbvideo/…</code> queues, and <code>look</code> one labelled image each.</p>
+        <p class="note">A small, worthwhile MCP change: a <code>CAMERAS</code> setting that maps each queue hash to a role, e.g. <code>gripper=usbvideo/3f2a…,desk=usbvideo/9c1e…</code>, so <code>look("desk")</code> works and the labels say what each image is. Askar's latest <code>server.py</code> already returns a clear message for a wrong camera index.</p>
       </div>
     </div>
   </div>
