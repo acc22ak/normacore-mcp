@@ -1,0 +1,7 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+station_data/
+.DS_Store
