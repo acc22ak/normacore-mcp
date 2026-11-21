@@ -121,7 +121,9 @@ Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future ru
 - Offline test without hardware: `python tests/offline_test.py . <norma-core path>` (monkeypatches queue reads/sends with simulated frames).
 - `mcp` is pinned `<2`: mcp 2.x renamed FastMCP → `mcp.server.mcpserver.MCPServer`.
 - stdout is the MCP channel, so log to stderr only.
-- **Code changes to the MCP server only take effect after it restarts** (`/mcp` → reconnect `normacore`, or restart `claude`).
+- **Code changes to the MCP server only take effect after it restarts**: with the default stdio transport, `/mcp` →
+  reconnect `normacore` (or restart `claude`); with `MCP_TRANSPORT=streamable-http` (server runs as its own process on
+  127.0.0.1:8790, logs visible), restart that process.
   Data files under `data/` are re-read on every tool call, so skill/pose edits apply immediately with no restart.
   That's why skills live in data, not code.
 
