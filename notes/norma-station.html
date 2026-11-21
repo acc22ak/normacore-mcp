@@ -27,10 +27,16 @@ h3{font-size:17px;font-weight:700;margin:0 0 6px}
 .lede{font-size:18px;max-width:62ch;margin:0;color:var(--ink)}
 .meta{color:var(--mute);font-size:14px;margin-top:10px}
 code,.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:.88em;overflow-wrap:anywhere}
-nav.scroll{display:flex;gap:6px;overflow-x:auto;padding:12px max(5vw,16px);border-block:1px solid var(--rule);background:var(--bg)}
-nav.scroll a{flex:none;color:var(--ink);text-decoration:none;font-size:15px;padding:10px 14px;border-radius:2px}
-nav.scroll a:hover,nav.scroll a:focus-visible{background:var(--plane);outline:none}
-@media(min-width:900px){nav.scroll{position:sticky;top:0;z-index:5}}
+.toc{border-block:1px solid var(--rule);padding:18px max(5vw,16px) 20px;background:var(--bg)}
+.toc h2{font-size:15px;font-weight:700;letter-spacing:0;margin:0 0 8px;padding-left:10px}
+.toc ol{list-style:none;margin:0;padding:0}
+.toc>ol{columns:2 280px;column-gap:40px}
+.toc>ol>li{break-inside:avoid}
+.toc a{display:block;color:var(--ink);text-decoration:none;font-size:15px;line-height:1.3;padding:9px 10px;border-radius:2px}
+.toc ol ol a{font-size:14px;color:var(--mute);padding:6px 10px 6px 24px}
+.toc a:hover,.toc a:focus-visible{background:var(--plane);outline:none}
+.toc a[aria-current]{background:var(--ink);color:var(--bg)}
+@media(min-width:1200px){body{padding-left:272px}.toc{position:fixed;top:0;left:0;bottom:0;width:272px;overflow-y:auto;border-block:0;border-right:1px solid var(--rule);padding:32px 14px;z-index:5}.toc>ol{columns:auto}}
 .plate{border:1px solid var(--rule);background:var(--plane2);overflow-x:auto}
 .plate svg{display:block;min-width:960px;width:100%;height:auto;color:var(--ink)}
 figcaption{font-size:15px;color:var(--mute);margin-top:10px;max-width:80ch}
@@ -58,6 +64,7 @@ pre{overflow-x:auto;background:var(--plane);padding:16px 18px;margin:0;font:14px
 .copy{position:absolute;top:8px;right:8px;min-height:36px;padding:6px 14px;font:inherit;font-size:14px;background:var(--bg);color:var(--ink);border:1px solid var(--rule);border-radius:2px;cursor:pointer}
 .copy:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 .note{font-size:15px;color:var(--mute)}
+.pill{display:inline-block;font-size:13px;padding:1px 8px;border:1px solid var(--rule);border-radius:2px;white-space:nowrap}
 @media(max-width:600px){table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-block:10px;border-bottom:1px solid var(--hair)}.stack td{display:flow-root;border:0;padding:3px 0;padding-inline-start:7.5em}.stack td::before{content:attr(data-l);float:inline-start;width:7em;margin-inline-start:-7.5em;color:var(--mute)}.stack td:empty{display:none}}
 </style>
 <script>new MutationObserver(()=>{for(const c of document.querySelectorAll('.stack td:not([data-l])')){let i=0,p=c;while(p=p.previousElementSibling)i+=p.colSpan;c.dataset.l=c.closest('table').rows[0].cells[i]?.textContent||''}}).observe(document,{childList:true,subtree:true})</script>
@@ -68,16 +75,35 @@ pre{overflow-x:auto;background:var(--plane);padding:16px 18px;margin:0;font:14px
   <div class="wrap">
     <h1>NormaCore Station: how the pieces fit</h1>
     <p class="lede">One Rust binary owns the hardware. Drivers write everything they see into NormFS queues. The web UI, the desktop app and your own Python or Go code all reach those same queues through one API on ports 8888 and 8889.</p>
-    <p class="meta">Notes for the ElRobot hackathon · repo <code>norma-core</code> at <code>6b494f7</code> · updated 21 Nov 2026</p>
+    <p class="meta">Notes for the ElRobot hackathon · repos <code>norma-core</code> at <code>6b494f7</code>, <code>normacore-mcp</code> at <code>cecc188</code> · updated 21 Nov 2026</p>
   </div>
 </header>
 
-<nav class="scroll" aria-label="Sections">
-  <a href="#architecture">Architecture</a>
-  <a href="#paths">State and command paths</a>
-  <a href="#code">Where the code lives</a>
-  <a href="#protocol">Wire protocol</a>
-  <a href="#build">Build from source</a>
+<nav class="toc" id="toc" aria-label="Contents">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#architecture">Architecture diagram</a></li>
+    <li><a href="#paths">State and command paths</a>
+      <ol><li><a href="#go-bug">Known bug: Go SendCommands</a></li></ol></li>
+    <li><a href="#mcp">Adding MCP: where it lives</a></li>
+    <li><a href="#core-api">Core API reference</a>
+      <ol>
+        <li><a href="#reading">Reading patterns and queues</a></li>
+        <li><a href="#st3215-commands">Driving an ST3215 bus</a></li>
+        <li><a href="#registers">Servo registers</a></li>
+      </ol></li>
+    <li><a href="#mcp-tools">MCP tools reference</a></li>
+    <li><a href="#plan">Team plan: teach, then tell</a>
+      <ol>
+        <li><a href="#learning-loop">Learning loop</a></li>
+        <li><a href="#roadmap">Roadmap</a></li>
+        <li><a href="#guardrails">Guardrails</a></li>
+        <li><a href="#skill-format">Skill file format</a></li>
+      </ol></li>
+    <li><a href="#code">Where the code lives</a></li>
+    <li><a href="#protocol">Wire protocol</a></li>
+    <li><a href="#build">Build from source</a></li>
+  </ol>
 </nav>
 
 <section id="architecture" class="band" style="border-top:0">
@@ -255,9 +281,314 @@ pre{overflow-x:auto;background:var(--plane);padding:16px 18px;margin:0;font:14px
       </div>
     </div>
     <div class="bug">
-      <h3><span class="tag">Known bug</span> Go <code>SendCommands</code> skips the pack</h3>
+      <h3 id="go-bug"><span class="tag">Known bug</span> Go <code>SendCommands</code> skips the pack</h3>
       <p><code>software/station/shared/station/streams.go:31</code> sends each <code>DriverCommand</code> as its own packet without the <code>StationCommandsPack</code> wrapper. ST3215 commands (type 0) decode as an empty pack and are silently ignored; every other type fails to decode and is dropped. Python, TypeScript and all drivers use the wrapper. Nothing in the repo calls the Go function yet, but its README recommends it.</p>
       <p style="margin:0">Fix: marshal one <code>StationCommandsPack{Commands: commands}</code> and write it with <code>client.Enqueue("commands", …)</code>.</p>
+    </div>
+  </div>
+</section>
+
+<section id="mcp" class="band">
+  <div class="wrap">
+    <h2>Adding MCP: keep it outside the station for now</h2>
+    <p>MCP support doesn't need to touch <code>norma-core</code>. Because the station API exposes everything, an MCP server can sit outside it as an ordinary client. <code>acc22ak/normacore-mcp</code> already does this: <code>server.py</code> turns 8 tools into queue reads and <code>commands</code> writes. Build on that repo during the hackathon. Embedding MCP into the Rust station is the later, cleaner option.</p>
+    <figure style="margin:18px 0 0">
+      <div class="plate">
+<svg viewBox="0 0 1100 330" role="img" aria-label="Option A, used today: Claude Code talks MCP over stdio to a Python server.py, which uses the TCP API on port 8888 to reach the station and the arm. Option B: Claude Code talks MCP over HTTP straight to an endpoint inside the station on port 8889, removing the Python process." font-family="Hanken Grotesk, system-ui, sans-serif" font-size="13">
+  <defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+  <text x="24" y="36" font-size="15" font-weight="700" fill="currentColor">A · today: separate MCP server <tspan font-weight="400" fill="var(--mute)">(normacore-mcp repo, Python)</tspan></text>
+  <text x="24" y="196" font-size="15" font-weight="700" fill="currentColor">B · later: MCP built into the station <tspan font-weight="400" fill="var(--mute)">(norma-core, Rust)</tspan></text>
+
+  <g fill="var(--bg)" stroke="currentColor" stroke-width="1.2">
+    <rect x="24" y="58" width="170" height="64"/><rect x="24" y="218" width="170" height="64"/>
+    <rect x="320" y="58" width="190" height="64" fill="var(--plane)"/>
+    <rect x="896" y="58" width="180" height="64" fill="var(--plane)"/><rect x="896" y="218" width="180" height="64" fill="var(--plane)"/>
+  </g>
+  <rect x="320" y="218" width="190" height="64" fill="none" stroke="currentColor" stroke-dasharray="4 4" stroke-width="1"/>
+  <rect x="640" y="50" width="200" height="80" fill="var(--bg)" stroke="currentColor" stroke-width="2"/>
+  <rect x="580" y="210" width="260" height="80" fill="var(--bg)" stroke="currentColor" stroke-width="2"/>
+  <rect x="616" y="58" width="80" height="64" fill="var(--yel)" stroke="currentColor"/>
+  <rect x="556" y="218" width="120" height="64" fill="var(--yel)" stroke="currentColor"/>
+
+  <g fill="currentColor">
+    <text x="38" y="86" font-weight="700">Claude Code</text><text x="38" y="106" fill="var(--mute)">or Codex</text>
+    <text x="38" y="246" font-weight="700">Claude Code</text><text x="38" y="266" fill="var(--mute)">or Codex</text>
+    <text x="334" y="86" font-weight="700">server.py</text><text x="334" y="106" fill="var(--mute)">FastMCP + station_py</text>
+    <text x="334" y="238" fill="var(--mute)">no extra process,</text><text x="334" y="274" fill="var(--mute)">no repo checkout</text>
+    <text x="712" y="86" font-weight="700">station</text><text x="712" y="106" fill="var(--mute)">unchanged</text>
+    <text x="690" y="246" font-weight="700">station</text><text x="690" y="266" fill="var(--mute)">+ mcp module</text>
+    <text x="910" y="86" font-weight="700">ElRobot follower</text><text x="910" y="106" fill="var(--mute)">+ cameras</text>
+    <text x="910" y="246" font-weight="700">ElRobot follower</text><text x="910" y="266" fill="var(--mute)">+ cameras</text>
+  </g>
+  <g fill="#111" text-anchor="middle">
+    <text x="656" y="86" font-weight="700">TCP</text><text x="656" y="104" font-size="12">:8888</text>
+    <text x="616" y="246" font-weight="700">HTTP</text><text x="616" y="264" font-size="12">:8889/mcp</text>
+  </g>
+
+  <g stroke="currentColor" stroke-width="1.4" fill="none">
+    <line x1="196" y1="90" x2="318" y2="90" marker-start="url(#ah2)" marker-end="url(#ah2)"/>
+    <line x1="512" y1="90" x2="614" y2="90" marker-start="url(#ah2)" marker-end="url(#ah2)"/>
+    <line x1="842" y1="90" x2="894" y2="90" marker-start="url(#ah2)" marker-end="url(#ah2)"/>
+    <line x1="196" y1="250" x2="554" y2="250" marker-start="url(#ah2)" marker-end="url(#ah2)"/>
+    <line x1="842" y1="250" x2="894" y2="250" marker-start="url(#ah2)" marker-end="url(#ah2)"/>
+  </g>
+  <g fill="currentColor" font-size="11.5" text-anchor="middle">
+    <text x="257" y="82">MCP over stdio</text>
+    <text x="563" y="82">protobuf</text>
+    <text x="257" y="242">MCP over HTTP</text>
+  </g>
+</svg>
+      </div>
+      <figcaption>Option B removes one hop, the Python process, and lets any machine on the network use the robot through a URL. Option A works today, with no rebuild of the station, and even with the DMG app.</figcaption>
+    </figure>
+
+    <div class="scroll" style="margin-top:22px">
+      <table class="stack">
+        <thead><tr><th>Option</th><th>Where the code goes</th><th>Good</th><th>Costs</th></tr></thead>
+        <tbody>
+          <tr><td><b>A · separate server</b></td><td><code>normacore-mcp/server.py</code></td><td>Exists and has an offline test. Python, quick to change. Works with any station build.</td><td>Needs a <code>norma-core</code> checkout for the client and protobufs, plus Python ≥3.10. One more process to run.</td></tr>
+          <tr><td><b>B · inside the station</b></td><td>new <code>software/station/bin/station/src/mcp/</code>, routed in <code>web/server.rs</code></td><td>One binary. Remote MCP over HTTP. Tools could call drivers directly, without the queue round trip.</td><td>Rust rewrite of the 8 tools, an MCP crate dependency, and a station rebuild for every tool change.</td></tr>
+          <tr><td><b>Upstream example</b></td><td><code>software/station/examples/mcp-py</code></td><td>Lives next to the other examples and uses the in-repo <code>station_py</code>, no env var needed.</td><td>Only worth doing once A is stable; it's a PR to norma-core.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="paths" style="margin-top:22px">
+      <div class="flow">
+        <div class="flowhead">Tools in server.py today</div>
+        <div class="step"><b>See</b><span><code>look</code> returns the latest JPEG from each camera; <code>list_cameras</code></span></div>
+        <div class="step"><b>Sense</b><span><code>get_robot_state</code>: normalized joint positions, torque, current, errors per bus</span></div>
+        <div class="step"><b>Move</b><span><code>move_joints</code>, <code>nudge_joints</code>, <code>set_gripper</code>, capped at 0.15 of a joint's range per call</span></div>
+        <div class="step"><b>Stop</b><span><code>hold</code> freezes the pose; <code>relax</code> turns torque off and the arm drops</span></div>
+      </div>
+      <div class="flow">
+        <div class="flowhead">Check before the first run on this Mac</div>
+        <div class="step"><b>Python</b><span>System <code>python3</code> is 3.9.6, but the <code>mcp</code> package needs ≥3.10. Make the venv with <code>uv venv --python 3.12</code> instead of <code>python3 -m venv</code>.</span></div>
+        <div class="step"><b>Protobufs</b><span><code>target/gen_python</code> is committed in norma-core, so <code>NORMA_CORE_REPO</code> can point at the existing clone.</span></div>
+        <div class="step"><b>Bus</b><span>Set <code>FOLLOWER_BUS</code>. With two arms plugged in, the move tools refuse to guess.</span></div>
+        <div class="step"><b>Small bug</b><span><code>look("5")</code> with fewer cameras raises an IndexError instead of a clear message.</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="core-api" class="band">
+  <div class="wrap">
+    <h2>Core API: four requests over one socket</h2>
+    <p>The station API is the NormFS protocol (<code>protobufs/normfs/normfs.proto</code>). A <code>ClientRequest</code> carries exactly one of four requests; a <code>ServerResponse</code> answers with the matching field. Over TCP, each message is a <code>u64</code> little-endian length followed by the protobuf bytes. The WebSocket at <code>ws://host:8889/api</code> carries the same messages.</p>
+    <div class="scroll" style="margin-top:14px">
+      <table class="stack">
+        <thead><tr><th>Request</th><th>Fields sent</th><th>Response</th><th>Use it for</th></tr></thead>
+        <tbody>
+          <tr><td><code>setup</code> (1)</td><td><code>version: 1</code></td><td><code>version</code>, <code>instance_id</code></td><td>First message on every connection</td></tr>
+          <tr><td><code>ping</code> (2)</td><td><code>sequence</code>, <code>client_timestamp_ns</code></td><td>Station clocks: <code>local_stamp_ns</code>, <code>monotonic_stamp_ns</code>, plus your request echoed back</td><td>Keep-alive; clock offset to the robot</td></tr>
+          <tr><td><code>write</code> (10)</td><td><code>write_id</code>, <code>queue_id</code>, <code>packets[]</code></td><td><code>WR_DONE</code> + one <code>Id</code> per packet, or <code>WR_SERVER_ERROR</code></td><td>Sending commands (<code>queue_id = "commands"</code>)</td></tr>
+          <tr><td><code>read</code> (11)</td><td><code>read_id</code>, <code>queue_id</code>, <code>offset {id, type}</code>, <code>limit</code>, <code>step</code></td><td>Stream: <code>RR_START</code>, <code>RR_ENTRY</code>…, <code>RR_END</code>; or <code>RR_QUEUE_NOT_FOUND</code> / <code>RR_NOT_FOUND</code> / <code>RR_SERVER_ERROR</code></td><td>History, latest entry, live follow</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cols" style="margin-top:28px">
+      <div>
+        <h3 id="reading">Reading patterns</h3>
+        <p><b>Latest N entries:</b> <code>offset = {id: N, type: OT_SHIFT_FROM_TAIL}</code>, <code>limit = N</code>.</p>
+        <p><b>Follow live:</b> shift 0 from tail, <code>limit = 0</code>. The stream never sends <code>RR_END</code>.</p>
+        <p><b>Replay history:</b> <code>OT_ABSOLUTE</code> from an entry id, with <code>step &gt; 1</code> to downsample.</p>
+        <p>Each <code>RR_ENTRY</code> carries the entry <code>id</code>, the raw <code>data</code> bytes (decode them with the queue's message type) and a <code>data_source</code> that says whether it came from memory, the write-ahead log, disk or the cloud.</p>
+        <p class="note">Several reads and writes can run on one connection at once; responses are matched by <code>read_id</code> / <code>write_id</code>.</p>
+      </div>
+      <div class="scroll">
+        <table class="stack">
+          <thead><tr><th>Queue</th><th>Message type</th><th>Who writes</th></tr></thead>
+          <tbody>
+            <tr><td><code>st3215/inference</code></td><td><code>st3215.InferenceState</code></td><td>st3215 driver, every poll</td></tr>
+            <tr><td><code>st3215/rx</code>, <code>/tx</code>, <code>/meta</code></td><td>raw bus traffic, sent commands, bus info</td><td>st3215 driver</td></tr>
+            <tr><td><code>commands</code></td><td><code>commands.StationCommandsPack</code></td><td>you, the viewer, the MCP server</td></tr>
+            <tr><td><code>inference-states</code></td><td><code>inference.InferenceRx</code>: latest pointer for every queue, with its type</td><td>station</td></tr>
+            <tr><td><code>usbvideo/&lt;md5&gt;</code></td><td><code>usbvideo.RxEnvelope</code>, JPEG frames</td><td>usbvideo driver</td></tr>
+            <tr><td><code>inference/normvla</code></td><td><code>normvla.Frame</code>: joints + 224 px frames</td><td>inference driver, ~10 Hz</td></tr>
+            <tr><td><code>system/rx</code></td><td>host telemetry</td><td>sysinfod</td></tr>
+            <tr><td><code>main</code></td><td><code>envelope.RootQueueEnvelope</code>: app and queue start events</td><td>station</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="cols" style="margin-top:28px">
+      <div>
+        <h3 id="st3215-commands">Driving an ST3215 bus</h3>
+        <p>An <code>st3215.Command</code> names the bus with <code>target_bus_serial</code> and sets one action. Wrap it in a <code>DriverCommand</code> with <code>type = STC_ST3215_COMMAND</code>, put that in a <code>StationCommandsPack</code>, and write the pack to <code>commands</code>.</p>
+        <p>Motor state comes back as a raw register dump: <code>InferenceState.buses[].motors[].state</code>, with <code>range_min</code> / <code>range_max</code> from calibration. If the two are equal, the joint is uncalibrated.</p>
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Action</th><th>Fields</th></tr></thead>
+            <tbody>
+              <tr><td><code>write</code></td><td><code>motor_id</code>, <code>address</code>, <code>value</code></td></tr>
+              <tr><td><code>sync_write</code></td><td><code>address</code>, <code>motors[{motor_id, value}]</code>: one register, many motors in one bus frame</td></tr>
+              <tr><td><code>reg_write</code> + <code>action</code></td><td>stage writes, then trigger them together</td></tr>
+              <tr><td><code>auto_calibrate</code> / <code>stop_auto_calibrate</code></td><td>sweep joints to find their ranges</td></tr>
+              <tr><td><code>reset_calibration</code>, <code>freeze_calibration</code>, <code>reset</code></td><td>calibration and motor housekeeping</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="scroll">
+        <h3 id="registers">Registers you'll use</h3>
+        <table>
+          <thead><tr><th>Address</th><th>Register</th><th>Size</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><code>0x28</code></td><td>Torque enable</td><td>u8</td><td>0 = limp, 1 = holding</td></tr>
+            <tr><td><code>0x29</code></td><td>Acceleration</td><td>u8</td><td>write before the goal</td></tr>
+            <tr><td><code>0x2A</code></td><td>Goal position</td><td>u16</td><td>0–4095, inside the calibrated range</td></tr>
+            <tr><td><code>0x2E</code></td><td>Goal speed</td><td>u16</td><td>steps per second</td></tr>
+            <tr><td><code>0x38</code></td><td>Present position</td><td>u16</td><td>bit 15 is the sign</td></tr>
+            <tr><td><code>0x40</code></td><td>Status</td><td>u8</td><td>non-zero means a servo error</td></tr>
+            <tr><td><code>0x45</code></td><td>Present current</td><td>u16</td><td>the driver limits this</td></tr>
+          </tbody>
+        </table>
+        <p class="note" style="margin-top:8px">All values are little-endian. Normalized position = (raw − range_min) / (range_max − range_min).</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="mcp-tools" class="band">
+  <div class="wrap">
+    <h2>MCP tools: what each one asks the station</h2>
+    <p>The server runs in tmux pane <code>main:4.3</code> as streamable HTTP at <code>http://127.0.0.1:8790/mcp</code>. It's registered in Claude Code as <code>normacore</code> for the <code>robotic-hackathon</code> folder. Every tool is a few reads of the latest queue entries, plus at most one write to <code>commands</code>.</p>
+    <div class="scroll" style="margin-top:14px">
+      <table class="stack">
+        <thead><tr><th>Tool</th><th>Arguments</th><th>Returns</th><th>Station calls</th></tr></thead>
+        <tbody>
+          <tr><td><code>look</code></td><td><code>camera</code>: <code>"all"</code>, an index or a queue id</td><td>A label and a JPEG per camera</td><td>read <code>inference-states</code>, then the last 8 entries of each <code>usbvideo/…</code></td></tr>
+          <tr><td><code>list_cameras</code></td><td>none</td><td>Camera queue ids</td><td>read <code>inference-states</code></td></tr>
+          <tr><td><code>get_robot_state</code></td><td>none</td><td>Per bus and motor: joint name, raw and normalized position, range, torque, current, error; plus the follower bus</td><td>read the last <code>st3215/inference</code></td></tr>
+          <tr><td><code>move_joints</code></td><td><code>targets</code>: <code>{"elbow": 0.4, "1": 0.5}</code>, optional <code>bus</code></td><td>From / to per joint, and whether it was clamped</td><td>read <code>st3215/inference</code>; write 1 pack with 4 sync-writes: speed, acceleration, torque on, goal</td></tr>
+          <tr><td><code>nudge_joints</code></td><td><code>deltas</code>: <code>{"elbow": -0.05}</code>, optional <code>bus</code></td><td>Same as <code>move_joints</code></td><td>same as <code>move_joints</code></td></tr>
+          <tr><td><code>set_gripper</code></td><td><code>opening</code>: 0..1, optional <code>bus</code></td><td>Same as <code>move_joints</code></td><td>same, for motor 8</td></tr>
+          <tr><td><code>hold</code></td><td>optional <code>bus</code></td><td>Confirmation</td><td>goal = present position, then torque on</td></tr>
+          <tr><td><code>relax</code></td><td>optional <code>bus</code></td><td>Confirmation</td><td>torque off on every motor: the arm drops</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="paths" style="margin-top:22px">
+      <div class="flow">
+        <div class="flowhead">Built-in safety</div>
+        <div class="step"><b>Step cap</b><span>Each call moves a joint at most <code>MAX_STEP_NORM</code> = 0.15 of its range; anything larger is clamped and reported.</span></div>
+        <div class="step"><b>Range</b><span>Goals are clamped inside the calibrated range. Uncalibrated joints, or joints with an error status, are skipped.</span></div>
+        <div class="step"><b>Bus</b><span>With two buses connected it refuses to move until <code>FOLLOWER_BUS</code> or <code>bus=</code> names the follower.</span></div>
+        <div class="step"><b>Pace</b><span>Waits 0.4 s after each move. It's a look → think → move loop, not real-time control.</span></div>
+      </div>
+      <div class="flow">
+        <div class="flowhead">Server settings (env vars)</div>
+        <div class="step"><b>NORMA_CORE_REPO</b><span>norma-core checkout; the server imports <code>station_py</code> and the protobuf code from it</span></div>
+        <div class="step"><b>STATION_HOST</b><span><code>localhost</code>; port 8888 is implied</span></div>
+        <div class="step"><b>FOLLOWER_BUS</b><span>Serial of the arm the tools may move. Not set yet: copy it from the bus card in the viewer.</span></div>
+        <div class="step"><b>MCP_TRANSPORT</b><span><code>stdio</code> (default) or <code>streamable-http</code>, with <code>MCP_HOST</code> / <code>MCP_PORT</code> (8790)</span></div>
+        <div class="step"><b>MOVE_SPEED</b><span>600 steps/s; <code>GRIPPER_MOTOR_ID</code> 8 (6 on an SO-101)</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="plan" class="band">
+  <div class="wrap">
+    <h2>Team plan: teach skills by hand, then tell the robot what to do</h2>
+    <p>From the <code>CLAUDE.md</code> roadmap in <code>normacore-mcp</code> (commit <code>cecc188</code>). The bet: keep geometry out of the LLM. Instead of Claude guessing joint angles from images, a person demonstrates a skill once with the leader arm. Claude saves it as a JSON file of keyframes, then plans in plain English with named skills, checks every step on camera, and tunes the skill data when a run goes wrong.</p>
+    <p class="note">Pitch: “Show it once by hand, then just tell it what to do. It watches, acts, checks itself and gets better.”</p>
+
+    <h3 id="learning-loop" style="margin-top:22px">Learning loop</h3>
+    <figure style="margin:10px 0 0">
+      <div class="plate">
+<svg viewBox="0 0 1110 320" role="img" aria-label="A demonstration on the leader arm is captured from station history, cut into keyframes, explained from camera frames, saved as a skill file and replayed at half speed. Each later run is judged on camera and logged; a failure leads to one small adjustment and a re-test, and after three failed fixes Claude asks for a new demonstration." font-family="Hanken Grotesk, system-ui, sans-serif" font-size="13">
+  <defs><marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+  <g fill="var(--bg)" stroke="currentColor" stroke-width="1.2">
+    <rect x="20" y="40" width="150" height="72"/><rect x="204" y="40" width="150" height="72"/><rect x="388" y="40" width="150" height="72"/>
+    <rect x="572" y="40" width="150" height="72"/><rect x="756" y="40" width="150" height="72" stroke-width="2.4"/><rect x="940" y="40" width="150" height="72"/>
+  </g>
+  <g fill="var(--plane)" stroke="currentColor" stroke-width="1.2">
+    <rect x="572" y="196" width="150" height="72"/><rect x="756" y="196" width="150" height="72"/><rect x="940" y="196" width="150" height="72"/>
+  </g>
+  <g fill="currentColor">
+    <text x="34" y="70" font-weight="700">Demonstrate</text><text x="34" y="90" fill="var(--mute)">leader arm, teleop on</text>
+    <text x="218" y="70" font-weight="700">Capture</text><text x="218" y="90" fill="var(--mute)">last N s of history</text>
+    <text x="402" y="70" font-weight="700">Segment</text><text x="402" y="90" fill="var(--mute)">3–8 keyframes</text>
+    <text x="586" y="70" font-weight="700">Understand</text><text x="586" y="90" fill="var(--mute)">frames at keyframes</text>
+    <text x="770" y="70" font-weight="700">Save skill</text><text x="770" y="90" fill="var(--mute)">data/skills/*.json</text>
+    <text x="954" y="70" font-weight="700">Replay at 50%</text><text x="954" y="90" fill="var(--mute)">human watches → ok</text>
+    <text x="586" y="226" font-weight="700">Adjust one thing</text><text x="586" y="246" fill="var(--mute)">≤0.03 per joint, v+1</text>
+    <text x="770" y="226" font-weight="700">Judge on camera</text><text x="770" y="246" fill="var(--mute)">log runs.jsonl</text>
+    <text x="954" y="226" font-weight="700">Run on request</text><text x="954" y="246" fill="var(--mute)">look before, after</text>
+  </g>
+  <g stroke="currentColor" stroke-width="1.4" fill="none">
+    <line x1="172" y1="76" x2="202" y2="76" marker-end="url(#ah3)"/>
+    <line x1="356" y1="76" x2="386" y2="76" marker-end="url(#ah3)"/>
+    <line x1="540" y1="76" x2="570" y2="76" marker-end="url(#ah3)"/>
+    <line x1="724" y1="76" x2="754" y2="76" marker-end="url(#ah3)"/>
+    <line x1="908" y1="76" x2="938" y2="76" marker-end="url(#ah3)"/>
+    <line x1="1015" y1="114" x2="1015" y2="194" marker-end="url(#ah3)"/>
+    <line x1="938" y1="232" x2="908" y2="232" marker-end="url(#ah3)"/>
+    <line x1="754" y1="232" x2="724" y2="232" marker-end="url(#ah3)"/>
+    <polyline points="647,194 647,156 831,156 831,114" marker-end="url(#ah3)"/>
+    <polyline points="570,232 95,232 95,114" marker-end="url(#ah3)" stroke-dasharray="5 4"/>
+  </g>
+  <g font-size="11.5" fill="currentColor">
+    <text x="1024" y="158">every later run</text>
+    <text x="842" y="150">re-test at 50%, commit</text>
+    <text x="330" y="224" text-anchor="middle">after 3 failed fixes: ask for a new demo</text>
+  </g>
+</svg>
+      </div>
+      <figcaption>Skills are data in <code>data/</code>, which the server re-reads on every tool call, so a tuned skill takes effect immediately. Code changes need a server restart: in our tmux setup, restart pane 4.3; under stdio, reconnect with <code>/mcp</code>.</figcaption>
+    </figure>
+
+    <h3 id="roadmap" style="margin-top:28px">Roadmap</h3>
+    <p>Everything is still to do; P0 is the foundation the learning loop needs. New tools are built in this order rather than worked around with raw joint moves.</p>
+    <div class="scroll">
+      <table class="stack">
+        <thead><tr><th>P</th><th>Component</th><th>Files</th><th>What</th><th>Status</th></tr></thead>
+        <tbody id="roadmap-rows"></tbody>
+      </table>
+    </div>
+    <p class="note" style="margin-top:10px">Final tool surface: perception (<code>look</code>, <code>find_objects</code>, <code>gripper_status</code>, <code>get_robot_state</code>), motion (<code>go_to_pose</code>, <code>nudge_joints</code>, <code>grasp</code>, <code>release</code>), skills (<code>list_skills</code>, <code>run_skill</code>, <code>edit_skill</code>, <code>pick</code>, <code>place</code>), learning (<code>record_demo</code>, <code>skill_from_history</code>, <code>save_pose</code>), safety (<code>hold</code>, <code>relax</code>).</p>
+
+    <div class="cols" style="margin-top:28px">
+      <div>
+        <h3 id="guardrails">Guardrails</h3>
+        <p>Claude can change skills and code itself, but never these without a person's explicit OK:</p>
+        <div class="flow">
+          <div class="step"><b>Safety limits</b><span>Never loosen <code>MAX_STEP_NORM</code>, velocity caps, <code>data/limits.json</code>, current-abort thresholds, the leader-bus ban, or how <code>hold</code> and <code>relax</code> behave.</span></div>
+          <div class="step"><b>First runs</b><span>A new or changed skill runs at 50% speed, with a person watching, before it ever runs at full speed.</span></div>
+          <div class="step"><b>Teleop</b><span>Never run a skill while leader → follower teleop is running.</span></div>
+          <div class="step"><b>History</b><span>Every learning change is its own git commit, so anything can be reverted.</span></div>
+        </div>
+      </div>
+      <div>
+        <h3 id="skill-format">Skill file format</h3>
+        <p>Keyframes list only the joints that change; the rest hold. Composite skills can call other skills with <code>{"skill": "…"}</code> steps.</p>
+<pre>{
+  "name": "pick_cube_b2",
+  "description": "Pick the cube from cell B2",
+  "preconditions": ["cube visible in B2", "gripper empty"],
+  "effects": ["cube in gripper"],
+  "bus": "&lt;follower serial&gt;",
+  "keyframes": [
+    {"joints": {"1": 0.50, "2": 0.31, "4": 0.72, "8": 0.90},
+     "duration_s": 1.5, "label": "above B2"},
+    {"joints": {"2": 0.36, "4": 0.66}, "duration_s": 1.0, "label": "down"},
+    {"gripper": "close", "label": "grasp"},
+    {"joints": {"2": 0.31, "4": 0.72}, "duration_s": 1.0, "label": "lift"}
+  ],
+  "speed_scale": 1.0,
+  "status": "new | ok | flaky | broken",
+  "version": 1,
+  "last_good": null,
+  "stats": {"runs": 0, "success": 0},
+  "changelog": [{"version": 1, "note": "learned from demo"}],
+  "source": {"type": "demo", "station_time_range_ns": [0, 0]}
+}</pre>
+      </div>
     </div>
   </div>
 </section>
@@ -345,12 +676,42 @@ RUST_LOG=info ../../../../target/release/station --tcp --web
   const esc = s => s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
   document.getElementById('code-rows').innerHTML = code.map(r => `<tr><td><b>${esc(r[0])}</b></td><td><code>${esc(r[1])}</code></td><td>${esc(r[2])}</td><td>${esc(r[3])}</td></tr>`).join('');
   document.getElementById('proto-rows').innerHTML = proto.map(r => `<tr><td><code>${esc(r[0])}</code></td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join('');
+  const roadmap = [
+    ["P0","Station I/O","station_io.py","Split connection, state, camera and command code out of server.py","todo"],
+    ["P0","Motion core","motion.py","execute_trajectory: ~20 Hz interpolation, per-joint velocity cap, abort + hold on servo error, current spike or soft-limit breach; gripper_status grasp detection","todo"],
+    ["P0","Poses","poses.py, data/poses.json","save_pose, list_poses, go_to_pose","todo"],
+    ["P0","Demonstration capture","learn.py","record_demo, skill_from_history","todo"],
+    ["P1","Skills","data/skills/*.json","list_skills, run_skill, edit_skill; run log in data/runs.jsonl","todo"],
+    ["P1","Vision","vision.py","look(grid=True) with an A1–C3 grid on the desk cam; find_objects(color) by HSV blobs","todo"],
+    ["P2","Pick anywhere","poses.py","Taught above_<cell> poses for 9 cells, blended into pick(cell) / place(cell)","todo"],
+    ["P2","E-stop","estop.py","Separate process with its own station connection: Space = hold, Esc = relax","todo"],
+    ["P3","Demo agent and UI","agent.py, ui/","Claude API agent with the same tools; page with camera feeds, reasoning stream and STOP button","stretch"],
+    ["P3","SmolVLA","software/ai/smolvla_py","Train a policy on recorded demos for one fast skill; Claude stays the planner","stretch"]
+  ];
+  document.getElementById('roadmap-rows').innerHTML = roadmap.map(r => `<tr><td><b>${r[0]}</b></td><td>${esc(r[1])}</td><td><code>${esc(r[2])}</code></td><td>${esc(r[3])}</td><td><span class="pill">${r[4]}</span></td></tr>`).join('');
   const btn = document.getElementById('copy-build');
   btn.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(document.getElementById('build-cmds').textContent); btn.textContent = 'Copied'; }
     catch (e) { btn.textContent = 'Select and copy'; }
     setTimeout(() => { btn.textContent = 'Copy'; }, 1800);
   });
+
+  // Contents: highlight the section currently on screen
+  const tocLinks = [...document.querySelectorAll('#toc > ol > li > a')];
+  const byId = new Map(tocLinks.map(a => [a.getAttribute('href').slice(1), a]));
+  const visible = new Set();
+  const mark = () => {
+    const first = [...byId.keys()].find(id => visible.has(id));
+    tocLinks.forEach(a => a.removeAttribute('aria-current'));
+    if (first) byId.get(first).setAttribute('aria-current', 'true');
+  };
+  if ('IntersectionObserver' in window) {
+    const tocObserver = new IntersectionObserver(entries => {
+      entries.forEach(e => e.isIntersecting ? visible.add(e.target.id) : visible.delete(e.target.id));
+      mark();
+    }, { rootMargin: '-30% 0px -60% 0px' });
+    byId.forEach((a, id) => { const s = document.getElementById(id); if (s) tocObserver.observe(s); });
+  }
 }
 </script>
 </body>
