@@ -10,6 +10,9 @@ import asyncio, io, os, sys
 sys.path.insert(0, sys.argv[1])
 os.environ["NORMA_CORE_REPO"] = sys.argv[2]
 os.environ["FOLLOWER_BUS"] = "FOLLOW"
+import tempfile
+_TMP = tempfile.mkdtemp(prefix="normacore-test-")
+os.environ["CAMERAS_FILE"] = os.path.join(_TMP, "cameras.json")  # never write into the repo's data/
 import server as S
 from PIL import Image as PI
 from target.gen_python.protobuf.drivers.st3215 import st3215
@@ -142,7 +145,8 @@ async def main():
     check("wrap from_norm end", S.from_norm(1.0, 3900, 200) == 200)
 
     # --- perception + state ---
-    check("cameras discovered", await S.list_cameras() == ["usbvideo/abc"])
+    lc = await S.list_cameras()
+    check("cameras discovered", [c["queue"] for c in lc["cameras"]] == ["usbvideo/abc"] and lc["cameras"][0]["product"] == "C270 HD WEBCAM", str(lc))
     out = await S.look()
     check("look returns label + image", isinstance(out[0], str) and hasattr(out[1], "data"))
     bad = await S.look("5")
@@ -182,6 +186,37 @@ async def main():
     check("look by name keeps real index", out[0].startswith("camera 1:"), out[0])
     out = await S.look()
     check("look all returns both cameras in order", out[0].startswith("camera 0:") and out[2].startswith("camera 1:"), str(out[::2]))
+
+    # --- camera roles ---
+    r = await S.set_camera_role("desk", "0")
+    check("set_camera_role by index", r["camera"] == "usbvideo/abc" and os.path.exists(os.environ["CAMERAS_FILE"]), str(r))
+    r = await S.set_camera_role("gripper", "def")
+    check("set_camera_role by hash prefix", r["camera"] == "usbvideo/def", str(r))
+    out = await S.look("desk")
+    check("look('desk') returns the desk camera with role in label", len(out) == 2 and out[0].startswith("camera 0 [desk]:"), str(out[::2]))
+    out = await S.look("GRIPPER")
+    check("roles are case-insensitive", out[0].startswith("camera 1 [gripper]: GRIPPER CAM"), out[0])
+    lc = await S.list_cameras()
+    check("list_cameras shows roles", [c["role"] for c in lc["cameras"]] == ["desk", "gripper"] and lc["role_problems"] == [], str(lc))
+    r = await S.set_camera_role("desk", "usbvideo/def")
+    check("one role per camera: reassigning drops the old role", r["saved_roles"] == {"desk": "usbvideo/def"}, str(r))
+    out = await S.look("gripper")
+    check("unknown role gives a clear message", "No camera matching 'gripper'" in out[0] and "desk" in out[0], out[0])
+    r = await S.set_camera_role("desk", "none")
+    check("'none' removes a role", r["saved_roles"] == {}, str(r))
+    await expect_error("role 'all' rejected", S.set_camera_role("all", "0"), "role must be")
+    await expect_error("ambiguous prefix rejected", S.set_camera_role("desk", "usbvideo/"), "matches no single camera")
+    os.environ["CAMERAS"] = "desk=abc,top=ffff"
+    lc = await S.list_cameras()
+    check("CAMERAS env works as default", lc["cameras"][0]["role"] == "desk", str(lc))
+    check("env role for missing camera reported", any("'top'" in p for p in lc["role_problems"]), str(lc["role_problems"]))
+    await S.set_camera_role("main", "abc")
+    lc = await S.list_cameras()
+    check("two roles on one camera reported", any("several roles" in p for p in lc["role_problems"]), str(lc["role_problems"]))
+    out = await S.look()
+    check("look surfaces role problems", out[0].startswith("camera role problems:"), out[0])
+    del os.environ["CAMERAS"]; await S.set_camera_role("main", "none")
+
     STATIC.clear(); STATIC.update(saved)
     st = await S.get_robot_state()
     check("state has mirroring info", st["mirroring"]["available"] and st["mirroring"]["links"] == [])

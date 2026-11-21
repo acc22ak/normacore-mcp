@@ -122,6 +122,12 @@ Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future ru
 1. Always `look` + `get_robot_state` before moving. After every move, `look` again. Each `look` label says how old
    its frame is; a frame marked **STALE** (older than `FRAME_MAX_AGE_S`, or the camera reported a disconnect) is not
    the current scene. Never plan or verify a move with it: stop and tell the human the camera needs checking.
+   Use camera **roles**: `look("desk")` for the workspace, `look("gripper")` for fine alignment. Station doesn't know
+   which camera is which (queues are `usbvideo/<md5 of device id>`), so at session start call `list_cameras`; if roles
+   are missing or `role_problems` is non-empty, `look` at all cameras, identify them (gripper cam shows the jaws and its
+   view moves with the arm; desk cam is fixed and shows the whole table), call `set_camera_role`, and tell the human.
+   Unverified: whether a camera keeps its queue id when moved to another USB port (macOS id = AVFoundation
+   `uniqueID`, `avf.m:418`); a broken role shows up in `role_problems`.
 2. Only ever command the **follower** bus (`FOLLOWER_BUS`). Never write to the leader.
 3. Small steps: `nudge_joints` ≤ 0.05 when near objects/table; the server also clamps each call to `MAX_STEP_NORM` (0.15).
 4. Don't move uncalibrated joints or joints reporting `error_status != 0`.
@@ -167,7 +173,7 @@ Pitch: *"Show it once by hand, then just tell it what to do. It watches, acts, c
 | P3 | Demo agent/UI | `agent.py`, `ui/` | Claude API agent with the same tools + page with camera feeds, reasoning stream, STOP button | stretch |
 | P3 | SmolVLA | upstream `software/ai/smolvla_py` | train a policy on recorded demos for one fast skill; Claude stays the planner | stretch |
 
-Final tool surface: perception (`look`, `find_objects`, `gripper_status`, `get_robot_state`), motion (`go_to_pose`,
+Final tool surface: perception (`look`, `list_cameras`, `set_camera_role`, `find_objects`, `gripper_status`, `get_robot_state`), motion (`go_to_pose`,
 `nudge_joints`, `grasp`, `release`), skills (`list_skills`, `run_skill`, `edit_skill`, `pick`, `place`), learning
 (`teach_mode`, `record_demo`, `skill_from_history`, `save_pose`), safety (`hold`, `relax`).
 **If a tool you need for the protocol below doesn't exist yet, build it (roadmap order) rather than improvising with raw joint moves.**

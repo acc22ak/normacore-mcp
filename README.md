@@ -9,7 +9,8 @@ and **move the ElRobot follower arm** through the NormaCore Station API.
 
 Tools: `look`, `list_cameras`, `get_robot_state`, `move_joints`, `nudge_joints`,
 `set_gripper`, `hold`, `relax` (safe stop: torque off), `teach_mode` (Station's built-in leader→follower
-mirroring on/off; motion tools refuse while it's on).
+mirroring on/off; motion tools refuse while it's on), `set_camera_role` (name cameras "desk" / "gripper" so
+`look("desk")` works; saved in `data/cameras.json`).
 
 ---
 
@@ -105,7 +106,9 @@ claude mcp add normacore \
   -e FOLLOWER_BUS=<FOLLOWER_SERIAL> \
   -- $PWD/.venv/bin/python $PWD/server.py
 ```
-Then in `claude`: `/mcp` should list `normacore` with 9 tools.
+Then in `claude`: `/mcp` should list `normacore` with 10 tools.
+Then name the cameras once: ask Claude to `look`, tell which picture is which, and `set_camera_role` them
+(or set `CAMERAS`). Station itself has no idea which camera is the gripper cam.
 
 ### Codex (`~/.codex/config.toml`)
 ```toml
@@ -126,6 +129,8 @@ env = { NORMA_CORE_REPO = "/Users/you/norma-core", STATION_HOST = "localhost", F
 | `GRIPPER_MOTOR_ID` | `8` | `6` for an SO-101 |
 | `LEADER_BUS` | auto if exactly 2 buses | leader arm serial, used by `teach_mode`; never commanded |
 | `TEACH_MAX_POSE_DIFF` | `0.2` | `teach_mode(on)` refuses if leader/follower poses differ more than this (normalized) |
+| `CAMERAS` | — | default camera roles, e.g. `desk=usbvideo/9c1e,gripper=3f2a` (queue id or unique hash prefix); `data/cameras.json` wins |
+| `CAMERAS_FILE` | `data/cameras.json` | where `set_camera_role` saves roles |
 | `FRAME_MAX_AGE_S` | `2.0` | `look` marks a camera frame older than this as STALE (e.g. camera unplugged or frozen). Assumes station and MCP share a clock |
 | `MCP_TRANSPORT` | `stdio` | `streamable-http` to run the server yourself (e.g. in a tmux pane to watch logs) |
 | `MCP_HOST` / `MCP_PORT` | `127.0.0.1` / `8790` | listen address for `streamable-http` |
