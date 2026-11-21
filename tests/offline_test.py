@@ -6,7 +6,7 @@ The fake station reacts to mirroring commands the way motors-mirroring does in t
 norma-core source: START -> link + torque on targets (inference/mod.rs:68-88),
 STOP -> unlink + torque off on the freed bus (inference/mod.rs:91-131).
 """
-import asyncio, io, os, sys
+import asyncio, io, json, os, sys
 sys.path.insert(0, sys.argv[1])
 os.environ["NORMA_CORE_REPO"] = sys.argv[2]
 os.environ["FOLLOWER_BUS"] = "FOLLOW"
@@ -15,6 +15,8 @@ os.environ.update({"MOTION_RATE_HZ": "100", "MAX_VEL_NORM": "2.0", "SETTLE_S": "
 import tempfile
 _TMP = tempfile.mkdtemp(prefix="normacore-test-")
 os.environ["CAMERAS_FILE"] = os.path.join(_TMP, "cameras.json")  # never write into the repo's data/
+os.environ["SKILLS_DIR"] = os.path.join(_TMP, "skills")
+os.environ["RUNS_FILE"] = os.path.join(_TMP, "runs.jsonl")
 import server as S
 from PIL import Image as PI
 from target.gen_python.protobuf.drivers.st3215 import st3215
@@ -102,8 +104,11 @@ STATIC = {
         frames=frame.FramesPack(frames_data=[JPEG])).encode(),
 }
 
-async def fake_read_last(q, n=1):
+async def fake_read_last(q, n=1, timeout=None):
     if q == "st3215/inference":
+        if HISTORY and n > 1:                      # recorded history for skill_from_history
+            READS_N.append(n)
+            return [memoryview(x) for x in HISTORY[-n:]]
         return [memoryview(enc_st3215())]
     if q == S.MIRRORING_QUEUE:
         if not MIRROR["present"]:
@@ -365,6 +370,7 @@ async def main():
     await expect_error("teach_mode needs mirroring driver", S.teach_mode(True), "not found")
 
     await motion_engine_tests()
+    await learning_tests()
 
     tools = sorted(t.name for t in await S.mcp.list_tools())
     print("tools:", tools)
@@ -372,6 +378,93 @@ async def main():
     check("motion tools registered", {"go_to", "play_motion", "stop_motion"} <= set(tools))
     print(f"\n{'ALL PASSED' if not FAILS else f'{len(FAILS)} FAILED: {FAILS}'}")
     sys.exit(1 if FAILS else 0)
+
+HISTORY: list = []     # encoded st3215/inference entries, oldest first
+READS_N: list = []     # how many entries each history read asked for
+
+def history_entry(stamp_ns, follow_raw: dict):
+    motors = [st3215.InferenceState_MotorState(id=i, state=motor_state(follow_raw.get(i, 2000), 1),
+                                               range_min=1000, range_max=3000, range_freezed=True) for i in range(1, 9)]
+    lead = [st3215.InferenceState_MotorState(id=i, state=motor_state(2000, 0), range_min=1000, range_max=3000,
+                                             range_freezed=True) for i in range(1, 9)]
+    return st3215.InferenceState(buses=[
+        st3215.InferenceState_BusState(bus=st3215.ST3215Bus(serial_number="FOLLOW"), motors=motors, monotonic_stamp_ns=stamp_ns),
+        st3215.InferenceState_BusState(bus=st3215.ST3215Bus(serial_number="LEAD"), motors=lead, monotonic_stamp_ns=stamp_ns),
+    ]).encode()
+
+def make_demo(hz=25, idle_before=10.0, move=3.0, idle_after=5.0):
+    """Follower history: still, then shoulder 2000->2400 and gripper closes 2800->2200, then still."""
+    out, n = [], int((idle_before + move + idle_after) * hz)
+    for i in range(n):
+        t = i / hz
+        u = min(max((t - idle_before) / move, 0.0), 1.0) if move > 0 else 0.0
+        out.append(history_entry(10**12 + int(t * 1e9), {2: 2000 + int(400 * u), 8: 2800 - int(600 * u)}))
+    return out
+
+async def learning_tests():
+    print("\n--- learning: record -> skill -> practice ladder ---")
+    MIRROR.update(present=False); MIRROR["links"].clear(); MIRROR["modes"].clear()
+    HISTORY[:] = make_demo()
+    r = await S.skill_from_history("pick_a", seconds=60, description="pick cube from spot A")
+    check("skill recorded from history", r["samples"] > 20 and r["warning"] is None, str(r))
+    check("idle time trimmed (3 s move + padding)", 3.0 <= r["duration_s"] <= 3.8, r["duration_s"])
+    check("history rate measured (~25 Hz), not assumed", abs(r["history"]["rate_hz"] - 25) < 1, r["history"])
+    check("asked for >255 entries (multi-byte offset)", max(READS_N) > 255, READS_N)
+    check("reports real coverage when history is shorter than requested", r["history"]["covered_s"] < 60, r["history"])
+    sk = json.load(open(os.path.join(os.environ["SKILLS_DIR"], "pick_a.json")))
+    check("skill file has motion, raw, calibration, keyframes, practice 0.5",
+          sk["motion"] and "raw" in sk["motion"][0] and sk["calibration"]["ranges"]["2"] == [1000, 3000]
+          and sk["keyframes"][0]["label"] == "start" and sk["practice"]["speed_scale"] == 0.5)
+    await expect_error("refuses to overwrite without overwrite=True", S.skill_from_history("pick_a"), "exists")
+    await expect_error("bad skill name rejected", S.skill_from_history("Pick A!"), "skill name")
+    HISTORY[:] = make_demo(move=0.0)
+    await expect_error("no movement -> clear error about teach mode", S.skill_from_history("still"), "teach mode")
+    HISTORY[:] = []
+
+    ls = await S.list_skills()
+    check("list_skills shows it", ls and ls[0]["name"] == "pick_a" and ls[0]["speed_scale"] == 0.5, str(ls))
+
+    reset_follower()
+    for m in MODEL["FOLLOW"].values():
+        m.update(pos=2000, goal=2000)
+    MODEL["FOLLOW"][8].update(pos=2800, goal=2800)
+    r = await S.run_skill("pick_a")
+    check("run_skill plays the recording fast in one call", r["completed"] and r["speed_scale"] == 0.5, str(r))
+    check("run_skill reached the demo's end pose", abs(MODEL["FOLLOW"][2]["pos"] - 2400) <= 25, MODEL["FOLLOW"][2])
+    res = await S.report_skill_result(r["run_id"], True)
+    check("1 success: still 0.5", res["practice"]["speed_scale"] == 0.5 and res["status"] == "ok", str(res))
+    await expect_error("run_id can't be reported twice", S.report_skill_result(r["run_id"], True), "unknown")
+    reset_follower(); MODEL["FOLLOW"][8].update(pos=2800, goal=2800)
+    r = await S.run_skill("pick_a")
+    res = await S.report_skill_result(r["run_id"], True)
+    check("2 successes in a row: speed up to 0.75", res["practice"]["speed_scale"] == 0.75, str(res))
+    reset_follower(); MODEL["FOLLOW"][8].update(pos=2800, goal=2800)
+    r = await S.run_skill("pick_a")
+    check("next run uses 0.75 and is quicker", r["speed_scale"] == 0.75 and r["completed"], str(r))
+    res = await S.report_skill_result(r["run_id"], False, "missed the cube")
+    check("failure: back to 0.5, status flaky", res["practice"]["speed_scale"] == 0.5 and res["status"] == "flaky", str(res))
+
+    reset_follower(); MODEL["FOLLOW"][8].update(pos=2800, goal=2800)
+    SIM["spike"] = {"motor": 3, "after": 5, "value": 500}
+    r = await S.run_skill("pick_a")
+    check("engine abort counts as failure automatically", not r["completed"] and r["counted_as"] == "failure", str(r))
+    SIM["spike"] = None
+
+    reset_follower(); MODEL["FOLLOW"][8].update(pos=2800, goal=2800)
+    for m in MODEL["FOLLOW"].values():
+        m["rmin"] = 1100                                 # re-calibrated since the demo
+    r = await S.run_skill("pick_a", speed_scale=1.5)
+    check("calibration changed: replay from raw, capped at 0.5", r["speed_scale"] == 0.5 and r["calibration_changed"], str(r))
+    check("calibration changed: still reaches the same RAW end pose", abs(MODEL["FOLLOW"][2]["pos"] - 2400) <= 25, MODEL["FOLLOW"][2])
+    sk = json.load(open(os.path.join(os.environ["SKILLS_DIR"], "pick_a.json")))
+    check("calibration changed: status needs_check", sk["status"] == "needs_check", sk["status"])
+    await S.report_skill_result(r["run_id"], True)
+    for m in MODEL["FOLLOW"].values():
+        m["rmin"] = 1000
+
+    runs = [json.loads(l) for l in open(os.environ["RUNS_FILE"], encoding="utf-8")]
+    check("every run logged in runs.jsonl", len(runs) == 5 and all("practice_after" in x for x in runs), len(runs))
+    SIM["on"] = False
 
 def reset_follower():
     for m in MODEL["FOLLOW"].values():

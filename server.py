@@ -53,6 +53,7 @@ from mcp.server.fastmcp import FastMCP, Image  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import motion as M  # noqa: E402
+import learn as L  # noqa: E402
 
 from station_py import ErrQueueNotFound, new_station_client, send_commands  # noqa: E402
 from target.gen_python.protobuf.drivers.motors_mirroring import mirroring  # noqa: E402
@@ -127,12 +128,12 @@ async def client():
 # ----------------------------------------------------------------------------
 # queue helpers
 
-async def read_last(queue_id: str, n: int = 1) -> list[memoryview]:
+async def read_last(queue_id: str, n: int = 1, timeout: float = READ_TIMEOUT_S) -> list[memoryview]:
     """Return up to the last `n` entries of a queue, oldest first."""
     c = await client()
-    qr = c.read_from_tail(queue_id, offset=bytes([n]), limit=n, step=1, buf_size=n + 1)
+    qr = c.read_from_tail(queue_id, offset=L.encode_shift(n), limit=n, step=1, buf_size=n + 1)
     out: list[memoryview] = []
-    deadline = time.monotonic() + READ_TIMEOUT_S
+    deadline = time.monotonic() + timeout
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -202,7 +203,12 @@ async def read_buses() -> dict[str, dict]:
     entries = await read_last("st3215/inference", 1)
     if not entries:
         raise RuntimeError("no data in st3215/inference: is an arm plugged in and powered?")
-    state = st3215.InferenceStateReader(entries[-1])
+    return parse_inference_state(entries[-1])
+
+
+def parse_inference_state(raw) -> dict[str, dict]:
+    """One st3215/inference entry -> {bus serial: {"motors": {...}, "stamp_ns": ...}}."""
+    state = st3215.InferenceStateReader(raw)
     buses: dict[str, dict] = {}
     for bus in state.get_buses() or []:
         info = bus.get_bus()
@@ -1046,6 +1052,229 @@ async def stop_motion() -> str:
     e-stop script; hold/relax also stop a running motion.)"""
     _abort.set()
     return "stop requested; a running motion will hold its current pose"
+
+
+# ----------------------------------------------------------------------------
+# learning: record a demonstration from Station's history -> skill -> practice ladder
+
+SKILLS_DIR = Path(os.environ.get("SKILLS_DIR", str(Path(__file__).resolve().parent / "data" / "skills")))
+RUNS_FILE = Path(os.environ.get("RUNS_FILE", str(Path(__file__).resolve().parent / "data" / "runs.jsonl")))
+HISTORY_MAX_ENTRIES = int(os.environ.get("HISTORY_MAX_ENTRIES", "20000"))
+HISTORY_TIMEOUT_S = float(os.environ.get("HISTORY_TIMEOUT_S", "30"))
+_SKILL_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_pending_runs: dict[str, dict] = {}
+
+
+def _skill_path(name: str) -> Path:
+    if not _SKILL_RE.match(name):
+        raise RuntimeError("skill name: lowercase letters, digits, '-' or '_' (e.g. 'pick_a')")
+    return SKILLS_DIR / f"{name}.json"
+
+
+def _load_skill(name: str) -> dict:
+    p = _skill_path(name)
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        known = sorted(f.stem for f in SKILLS_DIR.glob("*.json")) if SKILLS_DIR.exists() else []
+        raise RuntimeError(f"no skill {name!r}; known: {known}") from None
+
+
+def _save_json(p: Path, data: dict) -> None:
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
+    tmp.replace(p)
+
+
+def _log_run(record: dict) -> None:
+    RUNS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with RUNS_FILE.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+
+
+async def _read_history(serial_hint: str | None, seconds: float) -> tuple[str, list[tuple], dict]:
+    """Follower samples (t, norm, raw) from the last `seconds` of st3215/inference."""
+    probe = [parse_inference_state(r) for r in await read_last("st3215/inference", 50)]
+    if not probe:
+        raise RuntimeError("no data in st3215/inference")
+    serial = pick_bus(probe[-1], serial_hint)
+    rate = L.estimate_rate_hz([b[serial]["stamp_ns"] for b in probe if serial in b]) or 20.0
+    n = min(HISTORY_MAX_ENTRIES, int(seconds * rate * 1.3) + 10)
+    entries = await read_last("st3215/inference", n, timeout=HISTORY_TIMEOUT_S)
+    snaps, seen = [], set()
+    for raw in entries:
+        bus = parse_inference_state(raw).get(serial)
+        if bus is None or bus["stamp_ns"] in seen:
+            continue
+        seen.add(bus["stamp_ns"])
+        snaps.append(bus)
+    snaps.sort(key=lambda b: b["stamp_ns"])
+    if not snaps:
+        raise RuntimeError(f"no history for bus {serial}")
+    newest = snaps[-1]["stamp_ns"]
+    snaps = [b for b in snaps if b["stamp_ns"] >= newest - int(seconds * 1e9)]
+    uncal = sorted({m["joint"] for b in snaps for m in b["motors"].values() if m["position_norm"] is None})
+    if uncal:
+        raise RuntimeError(f"joints {uncal} were uncalibrated during the recording; calibrate + Save first")
+    base = snaps[0]["stamp_ns"]
+    samples = [((b["stamp_ns"] - base) / 1e9,
+                {j: m["position_norm"] for j, m in b["motors"].items()},
+                {j: m["position_raw"] for j, m in b["motors"].items()}) for b in snaps]
+    info = {"entries_read": len(entries), "rate_hz": round(rate, 1),
+            "covered_s": round((newest - base) / 1e9, 2), "requested_s": seconds}
+    return serial, samples, {"info": info, "last": snaps[-1]}
+
+
+@mcp.tool()
+async def skill_from_history(name: str, seconds: float = 60.0, description: str = "",
+                             overwrite: bool = False, hz: float = 20.0, bus: str | None = None) -> dict:
+    """Turn what the follower arm did in the last `seconds` (default 60) into a skill.
+
+    Use right after a human demonstrates with teach_mode(on=True) (the follower copies the leader).
+    Still time before and after the movement is trimmed. Saves data/skills/<name>.json with the
+    dense motion (~hz samples/s, normalized + raw positions), a keyframe summary, and the
+    calibration at recording time. New skills start the practice ladder at speed 0.5.
+    Afterwards: teach_mode(on=False), then run_skill(name) while the human watches.
+    """
+    path = _skill_path(name)
+    old = None
+    if path.exists():
+        if not overwrite:
+            raise RuntimeError(f"skill {name!r} exists; pass overwrite=True to replace it (version goes up)")
+        old = _load_skill(name)
+    serial, samples, meta = await _read_history(bus, seconds)
+    moving = L.trim_idle(samples)
+    if len(moving) < 2:
+        raise RuntimeError(f"the follower didn't move in the last {seconds:g} s ({meta['info']}). "
+                           "Was teach mode on while the human demonstrated?")
+    dense = L.downsample(moving, hz)
+    last = meta["last"]["motors"]
+    skill = {
+        "name": name,
+        "description": description,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "bus": serial,
+        "source": {"type": "demo", **meta["info"], "duration_s": round(dense[-1][0], 2), "samples": len(dense)},
+        "calibration": {"frozen": all(m["range_frozen"] for m in last.values()),
+                        "ranges": {str(j): [m["range_min"], m["range_max"]] for j, m in last.items()}},
+        "motion": [{"t": round(t, 3), "joints": {str(j): v for j, v in n.items()},
+                    "raw": {str(j): v for j, v in r.items()}} for t, n, r in dense],
+        "keyframes": L.extract_keyframes(dense, GRIPPER_ID),
+        "practice": {"level": 0, "streak": 0, "speed_scale": L.SPEED_LEVELS[0]},
+        "status": "new",
+        "version": (old or {}).get("version", 0) + 1,
+        "stats": {"runs": 0, "success": 0},
+        "changelog": (old or {}).get("changelog", []) + [{"version": (old or {}).get("version", 0) + 1,
+                                                          "note": f"recorded from last {seconds:g} s of history"}],
+    }
+    _save_json(path, skill)
+    warn = None if skill["calibration"]["frozen"] else \
+        "calibration was not saved/frozen while recording: positions may drift; press Save in the web UI"
+    return {"saved": str(path), "duration_s": skill["source"]["duration_s"], "samples": len(dense),
+            "keyframes": [k["label"] for k in skill["keyframes"]], "history": meta["info"], "warning": warn,
+            "next": "teach_mode(on=False), then run_skill(name) at practice speed 0.5 with a human watching"}
+
+
+@mcp.tool()
+async def list_skills() -> list[dict]:
+    """Saved skills with status, practice speed, success stats and duration."""
+    out = []
+    for p in sorted(SKILLS_DIR.glob("*.json")) if SKILLS_DIR.exists() else []:
+        try:
+            s = json.loads(p.read_text(encoding="utf-8"))
+        except ValueError as e:
+            out.append({"name": p.stem, "error": f"unreadable: {e}"})
+            continue
+        out.append({"name": s.get("name", p.stem), "description": s.get("description"),
+                    "status": s.get("status"), "version": s.get("version"),
+                    "speed_scale": (s.get("practice") or {}).get("speed_scale"),
+                    "streak": (s.get("practice") or {}).get("streak"), "stats": s.get("stats"),
+                    "duration_s": (s.get("source") or {}).get("duration_s")})
+    return out
+
+
+def _skill_waypoints(skill: dict, motors: dict) -> tuple[list[dict], dict[int, str]]:
+    """Waypoints for play_motion. If calibration changed since recording (>20 steps), rebuild the
+    normalized targets from the recorded RAW positions with today's ranges (CLAUDE.md §6 rule 2)."""
+    current = {j: (m["range_min"], m["range_max"]) for j, m in motors.items()}
+    changed = L.ranges_changed((skill.get("calibration") or {}).get("ranges", {}), current)
+    if "motion" in skill:
+        wps = []
+        for p in skill["motion"]:
+            joints = dict(p["joints"])
+            if changed and "raw" in p:
+                for k, raw in p["raw"].items():
+                    j = int(k)
+                    if j in current:
+                        joints[k] = to_norm(int(raw), *current[j])
+            wps.append({"t": p["t"], "joints": joints})
+        return wps, changed
+    if "keyframes" in skill:  # hand-written skill: [{"joints": ..., "duration_s": ...}]
+        return [{"joints": k["joints"], "duration_s": k.get("duration_s", 1.0)} for k in skill["keyframes"]], changed
+    raise RuntimeError("skill has neither 'motion' nor 'keyframes'")
+
+
+@mcp.tool()
+async def run_skill(name: str, speed_scale: float | None = None, bus: str | None = None) -> dict:
+    """Run a saved skill FAST in one call, at its practice speed (or speed_scale if given).
+
+    Afterwards `look` once and call report_skill_result(run_id, success): 2 successes in a row
+    raise the practice speed one level (0.5, 0.75, 1.0, 1.25, ...), a failure lowers it one
+    level. If the engine aborts (collision, error, ...), that already counts as a failure.
+    If calibration changed since recording, positions are rebuilt from raw values and the
+    run is capped at 0.5 (status needs_check).
+    """
+    skill = _load_skill(name)
+    buses = await read_buses()
+    serial = pick_bus(buses, bus or skill.get("bus"))
+    wps, changed = _skill_waypoints(skill, buses[serial]["motors"])
+    practice = skill.get("practice") or {"level": 0, "streak": 0, "speed_scale": L.SPEED_LEVELS[0]}
+    speed = float(speed_scale) if speed_scale else float(practice.get("speed_scale", L.SPEED_LEVELS[0]))
+    if changed:
+        speed = min(speed, L.SPEED_LEVELS[0])
+        skill["status"] = "needs_check"
+    report = await _run_motion(wps, speed, serial)
+    run_id = os.urandom(4).hex()
+    record = {"run_id": run_id, "skill": name, "version": skill.get("version"), "speed_scale": speed,
+              "at": time.strftime("%Y-%m-%dT%H:%M:%S"), "engine": {k: report[k] for k in
+              ("completed", "abort_reason", "elapsed_s", "planned_s", "grasp_detected", "max_tracking_error")},
+              "calibration_changed": {str(k): v for k, v in changed.items()} or None}
+    if not report["completed"]:
+        _finish_run(skill, record, success=False, note=f"engine aborted: {report['abort_reason']}")
+        return {**report, "run_id": run_id, "counted_as": "failure", "practice": skill["practice"]}
+    _pending_runs[run_id] = {"skill": skill, "record": record}
+    _save_json(_skill_path(name), skill)  # persists a needs_check status
+    return {**report, "run_id": run_id, "speed_scale": speed,
+            "calibration_changed": record["calibration_changed"],
+            "next": "look at the result, then report_skill_result(run_id, success, note)"}
+
+
+def _finish_run(skill: dict, record: dict, success: bool, note: str) -> None:
+    skill["practice"] = L.ladder_update(skill.get("practice") or {}, success)
+    stats = skill.setdefault("stats", {"runs": 0, "success": 0})
+    stats["runs"] = stats.get("runs", 0) + 1
+    stats["success"] = stats.get("success", 0) + (1 if success else 0)
+    if skill.get("status") != "needs_check" or success:
+        skill["status"] = "ok" if success else "flaky"
+    _save_json(_skill_path(skill["name"]), skill)
+    _log_run({**record, "success": success, "note": note, "practice_after": skill["practice"]})
+
+
+@mcp.tool()
+async def report_skill_result(run_id: str, success: bool, note: str = "") -> dict:
+    """Judge a finished run_skill from what you saw with `look` (did the task actually succeed?).
+
+    Updates the practice ladder (2 successes in a row -> faster, failure -> slower), the
+    skill's stats/status, and appends the run to data/runs.jsonl.
+    """
+    pending = _pending_runs.pop(run_id, None)
+    if pending is None:
+        raise RuntimeError(f"unknown or already reported run_id {run_id!r}")
+    skill = _load_skill(pending["skill"]["name"])  # re-read: the file may have been edited meanwhile
+    _finish_run(skill, pending["record"], success, note)
+    return {"skill": skill["name"], "success": success, "status": skill["status"],
+            "practice": skill["practice"], "stats": skill["stats"]}
 
 
 if __name__ == "__main__":

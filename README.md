@@ -17,6 +17,12 @@ with `speed_scale`) run inside the server at ~20 Hz with safety checks, so Claud
 of thinking between every step. `stop_motion`, `hold` and `relax` stop a running motion. `move_joints`/`nudge_joints`
 stay as the slow, careful mode for learning.
 
+**Learn → practice → fast:** demonstrate with `teach_mode(on=True)`, then `skill_from_history("pick_a", seconds=60)`
+saves what the follower did in the last minute as a skill. `run_skill` plays it in one call; after each run Claude
+`look`s once and calls `report_skill_result`. Every **2 successes in a row** raise the speed one level
+(0.5 → 0.75 → 1.0 → …), a failure lowers it. Skills live in `data/skills/`, runs in `data/runs.jsonl`.
+Mark the object spots on the table (tape corner guides): fast replays don't look while moving.
+
 ---
 
 ## 0. Run everything on the MacBook
@@ -111,7 +117,7 @@ claude mcp add normacore \
   -e FOLLOWER_BUS=<FOLLOWER_SERIAL> \
   -- $PWD/.venv/bin/python $PWD/server.py
 ```
-Then in `claude`: `/mcp` should list `normacore` with 13 tools.
+Then in `claude`: `/mcp` should list `normacore` with 17 tools.
 Then name the cameras once: ask Claude to `look`, tell which picture is which, and `set_camera_role` them
 (or set `CAMERAS`). Station itself has no idea which camera is the gripper cam. Roles are saved by the
 camera's USB vendor:product:serial, so they survive replugging it or moving it to another port.
@@ -141,6 +147,7 @@ env = { NORMA_CORE_REPO = "/Users/you/norma-core", STATION_HOST = "localhost", F
 | `MOTION_RATE_HZ` | `20` | fast-mode control rate |
 | `CURRENT_LIMIT` / `CURRENT_LIMITS` | `100` / — | fast-mode collision limit (same units as Station's current threshold); per motor e.g. `8:40,5:60` |
 | `TRACK_ERR_MAX` / `TRACK_ERR_TICKS` | `0.10` / `5` | abort when a joint lags its target this much for this many ticks |
+| `SKILLS_DIR` / `RUNS_FILE` | `data/skills` / `data/runs.jsonl` | where skills and the run log are saved |
 | `LIMITS_FILE` | `data/limits.json` | optional soft limits per joint, e.g. `{"2": [0.1, 0.9]}` |
 | `FRAME_MAX_AGE_S` | `2.0` | `look` marks a camera frame older than this as STALE (e.g. camera unplugged or frozen). Assumes station and MCP share a clock |
 | `CAMERA_GONE_S` | `60` | a camera with no frame for this long, or that reported a disconnect, counts as unplugged and is hidden from `look("all")` / `list_cameras` (Station keeps a queue for every camera it ever saw; `list_cameras(include_gone=True)` shows them) |
@@ -175,5 +182,6 @@ Tips:
 ```bash
 .venv/bin/python tests/offline_test.py . ~/norma-core
 .venv/bin/python tests/test_motion.py .
+.venv/bin/python tests/test_learn.py .
 ```
 Runs every tool against simulated station data.

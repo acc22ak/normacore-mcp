@@ -170,8 +170,8 @@ Pitch: *"Show it once by hand, then just tell it what to do. It watches, acts, c
 | P0 | Fast playback engine | `motion.py` (pure logic), `server.py` (`go_to`, `play_motion`, `stop_motion`) | ~20 Hz streaming of eased keyframes or dense recordings, `speed_scale`, per-joint velocity cap (`MAX_VEL_NORM`), soft limits (`data/limits.json`); aborts + holds on servo error bits (voltage ignored like Station), over-current (=collision), tracking error, stale state, stop/hold/relax, cancellation (shielded hold); gripper over-current = grasp (stops squeezing) | done, offline-tested (simulated servos); **not yet tried on hardware** |
 | P0 | Teach mode + mirroring guard | `server.py` | `teach_mode(on/off)` starts/stops Station's built-in leader→follower mirroring; every motion tool refuses while the follower is a mirroring target | done, offline-tested; **not yet tried on hardware** |
 | P0 | Poses | `poses.py`, `data/poses.json` | `save_pose`, `list_poses`, `go_to_pose` | todo |
-| P0 | Demonstration capture | `learn.py` | `record_demo` / `skill_from_history` (see Learning protocol) | todo |
-| P1 | Skills | `data/skills/*.json` | `list_skills`, `run_skill`, `edit_skill`; run log in `data/runs.jsonl` | todo |
+| P0 | Demonstration capture | `learn.py` (pure), `server.py` | `skill_from_history(name, seconds=60)`: reads the last N s of `st3215/inference` (rate measured from bus stamps; offsets >255 encoded little-endian), trims idle, ~20 Hz dense motion + raw + keyframe summary + calibration snapshot | done, offline-tested; **not yet tried on hardware** |
+| P1 | Skills + practice ladder | `server.py`, `data/skills/*.json`, `data/runs.jsonl` | `list_skills`, `run_skill` (fast, one call), `report_skill_result`; ladder 0.5 → 0.75 → 1.0 → … after **2 successes in a row**, one level down on failure; engine abort = failure; calibration change → replay from raw at ≤0.5 + `needs_check` | done, offline-tested; **not yet tried on hardware** |
 | P1 | Drift handling | `motion.py`, `poses.py`, `data/compensation.json` | calibration snapshot + raw positions in skills/poses, replay-from-raw when ranges changed, goal-vs-present tracking error, per-joint compensation, `check_drift` (home pose + landmark). See Learning protocol §6. `range_frozen` + warning in `get_robot_state` already done | partly done |
 | P1 | Vision | `vision.py` | `look(grid=True)` labelled A1–C3 grid on the desk cam; `find_objects(color)` HSV blobs → pixel + cell | todo |
 | P2 | Pick anywhere | `poses.py` | taught `above_<cell>` poses for 9 cells, bilinear blend → `pick(cell)` / `place(cell)` | todo |
@@ -180,8 +180,8 @@ Pitch: *"Show it once by hand, then just tell it what to do. It watches, acts, c
 | P3 | SmolVLA | upstream `software/ai/smolvla_py` | train a policy on recorded demos for one fast skill; Claude stays the planner | stretch |
 
 Final tool surface: perception (`look`, `list_cameras`, `set_camera_role`, `find_objects`, `gripper_status`, `get_robot_state`), motion (`go_to`,
-`play_motion`, `stop_motion`, `go_to_pose`, `nudge_joints`, `grasp`, `release`), skills (`list_skills`, `run_skill`, `edit_skill`, `pick`, `place`), learning
-(`teach_mode`, `record_demo`, `skill_from_history`, `save_pose`), safety (`hold`, `relax`).
+`play_motion`, `stop_motion`, `go_to_pose`, `nudge_joints`, `grasp`, `release`), planned (`edit_skill`, `pick`, `place`), learning
+(`teach_mode`, `skill_from_history`, `save_pose`), skills (`list_skills`, `run_skill`, `report_skill_result`), safety (`hold`, `relax`).
 **If a tool you need for the protocol below doesn't exist yet, build it (roadmap order) rather than improvising with raw joint moves.**
 
 ---
@@ -194,24 +194,33 @@ Teaching setup: call `teach_mode(on)` (Station's built-in leader→follower mirr
 leader arm while the human demonstrates. Mirroring has its own current protection, so demos are safe to record.
 Triggers: "watch this", "learn this", "save what I just did as X", "remember this". If the human starts demonstrating
 and mirroring is off, offer to turn teach mode on.
-1. **Capture**: either `record_demo(start)` ... `record_demo(stop)`, or after the fact with
-   `skill_from_history(seconds=N)`. Station keeps full history, so read the last N seconds of `st3215/inference`
-   (`read_from_tail` with an entry count ≈ N × frame rate; measure the rate, it's ~10–20 Hz). **Use the follower bus
-   positions** so replays are exact (no leader/follower calibration mismatch).
-2. **Segment into keyframes**: endpoints, points where all joints are still for ≥0.3 s, and every gripper
-   open/close change. Drop near-duplicates. Typical result: 3–8 keyframes.
-3. **Understand it**: grab camera frames at the first and last keyframe (and at grasp moments). Camera queues
-   have history too, so match frames by `monotonic_stamp_ns`. Describe in one sentence what the skill does and its
-   preconditions (e.g. "cube must be in cell B2, gripper empty").
-4. **Save** `data/skills/<name>.json` immediately (format below), status `"new"`.
-5. **Confirm by replay**: call `teach_mode(off)` first. Tell the human you're about to replay, then run it at
-   **50% speed** while they watch, look before and after, and report the result. If it works, set status `"ok"`.
-6. Commit the new skill to git (`learn: add skill <name>`).
+1. **Capture**: right after the demo, `skill_from_history(name, seconds=60, description=...)` (default: the last
+   minute; use a smaller N if other movement happened before the demo). It uses the **follower** positions, trims
+   the still time before/after, and saves `data/skills/<name>.json` with status `"new"` at practice speed 0.5.
+   Check the returned `history.covered_s` and `duration_s`: if they don't match what the human did, say so.
+2. **Understand it**: `look` now (the end state) and write a one-sentence description with preconditions
+   (e.g. "cube on spot A, gripper empty") into the skill's `description`/`preconditions`.
+   (Camera frames at start/end are not stored automatically yet.)
+3. **Confirm by replay**: `teach_mode(on=False)`, put the object back on its marked spot, tell the human, then
+   `run_skill(name)` (runs at 0.5) and judge it with one `look`.
+4. Commit the new skill to git (`learn: add skill <name>`).
 
-## 2. Every time you run a skill → log and learn
-- Before: `look`, check the preconditions. After: `look` + `gripper_status`, judge success from the images.
-- Append one line to `data/runs.jsonl`: `{ts, skill, version, params, success, failure_reason, notes}`.
-- Update `stats` in the skill file.
+## 2. Every time you run a skill → practice ladder (this is how it gets fast)
+- Before: `look` once, check the preconditions (object on its marked spot?). Then `run_skill(name)`: the whole
+  motion runs in one call, no thinking in between.
+- After: `look` once, then **always** `report_skill_result(run_id, success, note)`. That updates the ladder and
+  appends the run to `data/runs.jsonl`:
+  **2 successes in a row → one speed level up** (0.5 → 0.75 → 1.0 → 1.25 → … → 2.0), **a failure → one level down**.
+  An engine abort (collision, servo error, ...) already counts as a failure.
+- The engine's `MAX_VEL_NORM` cap still applies: if a run reports `stretched_segments > 0`, the ladder is past what
+  the cap allows; tell the human (raising the cap needs their OK, §5).
+
+## Marked spots (the stage)
+Fast skills replay recorded motion without looking in between, so they only work if things are where they were during
+the demo (teach-mode deadband alone is ~1.3 cm at full reach, see §6). The team marks: the arm base outline, the desk
+camera position, corner guides for each object spot (A, B, ...) and a home landmark. Refer to spots by their letters,
+and before every `run_skill` check on camera that the object sits on its spot; if not, ask the human to put it back
+(or adjust the skill per §3) instead of running blind.
 
 ## 3. When a skill fails or is sloppy → adjust the skill (data first)
 Diagnose from the camera frames, then make **one change at a time**:
@@ -323,6 +332,9 @@ and design for correcting it.
   "source": {"type": "demo", "station_time_range_ns": [0, 0]}
 }
 ```
+Recorded skills (from `skill_from_history`) store a dense `"motion": [{"t", "joints", "raw"}, ...]` that `run_skill`
+plays, plus `"practice": {"level", "streak", "speed_scale"}`; their `keyframes` are a readable summary
+(`start`/`pause`/`gripper turns`/`end`). Hand-written skills may instead give only `keyframes` with `duration_s`.
 Keyframes may list only the joints that change; the others keep their current value. Composite skills may
 use `{"skill": "<other skill>"}` steps. `raw` and `calibration` are there so a skill survives re-calibration (§6 rule 2);
 `verify` says what the camera should show after that keyframe (§6 rule 1).
