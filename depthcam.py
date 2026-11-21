@@ -36,6 +36,7 @@ Env vars:
 
 from __future__ import annotations
 
+import errno
 import io
 import json
 import logging
@@ -287,9 +288,15 @@ def make_handler(store: FrameStore):
 
 def serve() -> None:
     store, stop = FrameStore(), threading.Event()
-    threading.Thread(target=capture_loop, args=(store, stop), daemon=True).start()
-    httpd = ThreadingHTTPServer((HOST, PORT), make_handler(store))
+    try:  # bind before touching the camera, so a second copy doesn't grab it
+        httpd = ThreadingHTTPServer((HOST, PORT), make_handler(store))
+    except OSError as e:
+        if e.errno == errno.EADDRINUSE:
+            sys.exit(f"depthcam: port {PORT} is already in use, so the daemon is probably already running "
+                     f"(see http://{HOST}:{PORT}/). Stop that one first, or set DEPTHCAM_PORT.")
+        raise
     httpd.daemon_threads = True
+    threading.Thread(target=capture_loop, args=(store, stop), daemon=True).start()
     log.info("depth camera page: http://%s:%d/", HOST, PORT)
     try:
         httpd.serve_forever()
