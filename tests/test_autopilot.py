@@ -238,7 +238,7 @@ async def integration_tests():
     # refused while mirrored (teach mode on)
     reset()
     MIRROR_PRESENT["v"] = True
-    await expect_error("probe refused while mirrored", A.move_until("elbow", 0.9), "teach_mode(on=False)")
+    await expect_error("probe refused while mirrored", A.move_until("elbow", 0.9), "being mirrored")
     MIRROR_PRESENT["v"] = False
 
     # unknown joint
