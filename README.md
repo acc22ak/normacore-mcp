@@ -118,6 +118,15 @@ env = { NORMA_CORE_REPO = "/Users/you/norma-core", STATION_HOST = "localhost", F
 | `MAX_STEP_NORM` | `0.15` | max joint change per call (0..1 of range); bigger requests get clamped |
 | `MOVE_SPEED` | `600` | servo speed in steps/s |
 | `GRIPPER_MOTOR_ID` | `8` | `6` for an SO-101 |
+| `MCP_TRANSPORT` | `stdio` | `streamable-http` to run the server yourself (e.g. in a tmux pane to watch logs) |
+| `MCP_HOST` / `MCP_PORT` | `127.0.0.1` / `8790` | listen address for `streamable-http` |
+
+Running as HTTP instead of stdio:
+```bash
+MCP_TRANSPORT=streamable-http NORMA_CORE_REPO=$HOME/norma-core .venv/bin/python server.py
+claude mcp add --transport http normacore http://127.0.0.1:8790/mcp
+```
+Code changes then need a restart of that process (not `/mcp`).
 
 ---
 

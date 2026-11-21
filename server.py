@@ -66,7 +66,14 @@ ELROBOT_JOINTS = {
 }
 GRIPPER_ID = int(os.environ.get("GRIPPER_MOTOR_ID", "8"))
 
-mcp = FastMCP("normacore-station", instructions=(
+# Transport: "stdio" (default, Claude Code spawns the server) or "streamable-http"
+# (run it yourself, e.g. in a tmux pane to watch the logs, then
+# `claude mcp add --transport http normacore http://127.0.0.1:8790/mcp`).
+MCP_TRANSPORT = os.environ.get("MCP_TRANSPORT", "stdio")
+MCP_HOST = os.environ.get("MCP_HOST", "127.0.0.1")
+MCP_PORT = int(os.environ.get("MCP_PORT", "8790"))
+
+mcp = FastMCP("normacore-station", host=MCP_HOST, port=MCP_PORT, instructions=(
     "Controls a real robot arm through NormaCore Station. Always call `look` and "
     "`get_robot_state` before moving. Move in small steps, then `look` again to "
     "check the result. Positions are normalized 0..1 inside each joint's "
@@ -352,4 +359,5 @@ async def hold(bus: str | None = None) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run()
+    log.info("starting MCP server (transport=%s, station=%s)", MCP_TRANSPORT, STATION_HOST)
+    mcp.run(transport=MCP_TRANSPORT)
