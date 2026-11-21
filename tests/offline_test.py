@@ -107,7 +107,7 @@ STATIC = {
 
 async def fake_read_last(q, n=1, timeout=None, step=1):
     if q == "st3215/inference":
-        if HISTORY and n > 1:                      # recorded history for skill_from_history
+        if HISTORY and n > 1:                      # robot history for save_attempt_as_skill
             READS_N.append(n)
             return [memoryview(x) for x in HISTORY[-n:][::step]]  # Station: every step-th of the last n
         return [memoryview(enc_st3215())]
@@ -333,42 +333,22 @@ async def main():
                        (lambda: (MIRROR["modes"].__setitem__("LEAD", mirroring.BusMode.BR_LEADER), S.move_joints({"1": 0.5}, bus="LEAD"))[1])(),
                        "LEADER")
 
-    # --- teach mode on: refused when poses differ ---
-    MODEL["LEAD"][2]["pos"] = 2800
-    r = await S.teach_mode(True)
-    check("teach_mode refuses big pose diff", r["teach_mode"] == "refused" and "shoulder" in r["problems"], str(r))
-    MODEL["LEAD"][2]["pos"] = MODEL["FOLLOW"][2]["pos"]
-    r = await S.teach_mode(True)
-    check("teach_mode on confirmed", r["teach_mode"] == "on" and r["leader"] == "LEAD", str(r))
-    start = [mirroring.CommandReader(x.get_body()) for x in SENT
-             if x.get_type() == drivers.StationCommandType.STC_MOTOR_MIRRORING_COMMAND][-1]
-    check("START command shape", start.get_type() == mirroring.CommandType.CT_START_MIRROR
-          and start.get_source().get_unique_id() == "LEAD"
-          and [t.get_unique_id() for t in start.get_targets()] == ["FOLLOW"])
-
-    # --- guard while mirrored ---
-    await expect_error("move refused while mirrored", S.move_joints({"1": 0.5}), "teach_mode(on=False)")
-    await expect_error("nudge refused while mirrored", S.nudge_joints({"elbow": 0.05}), "teach_mode(on=False)")
-    await expect_error("hold refused while mirrored", S.hold(), "teach_mode(on=False)")
+    # --- mirroring guard: someone switched Station teleop on in the web UI ---
+    MIRROR["links"]["FOLLOW"] = "LEAD"
+    MIRROR["modes"].update({"LEAD": mirroring.BusMode.BR_LEADER, "FOLLOW": mirroring.BusMode.BR_FOLLOWER})
+    await expect_error("move refused while mirrored", S.move_joints({"1": 0.5}), "turn mirroring off")
+    await expect_error("nudge refused while mirrored", S.nudge_joints({"elbow": 0.05}), "turn mirroring off")
+    await expect_error("hold refused while mirrored", S.hold(), "turn mirroring off")
     check("relax still allowed while mirrored", "torque disabled" in await S.relax())
     for mm in MODEL["FOLLOW"].values(): mm["torque"] = 1
-
-    # --- teach mode off: stop, wait for station torque-off, then hold ---
-    r = await S.teach_mode(False)
-    check("teach_mode off + holding", r["teach_mode"] == "off" and r["holding"] and r["note"] is None, str(r))
-    stop = [mirroring.CommandReader(x.get_body()) for x in SENT
-            if x.get_type() == drivers.StationCommandType.STC_MOTOR_MIRRORING_COMMAND][-1]
-    check("STOP uses follower as source (like web UI)", stop.get_type() == mirroring.CommandType.CT_STOP_MIRROR
-          and stop.get_source().get_unique_id() == "FOLLOW")
-    check("follower torque back on after hold", all(m["torque"] == 1 for m in MODEL["FOLLOW"].values()))
+    MIRROR["links"].clear()
     r = await S.move_joints({"1": 0.5})
-    check("move allowed after teach off", r["bus"] == "FOLLOW")
+    check("move allowed once mirroring is off", r["bus"] == "FOLLOW")
 
-    # --- mirroring driver absent: motion allowed, teach_mode errors ---
+    # --- mirroring driver absent: motion allowed ---
     MIRROR["present"] = False; MIRROR["modes"].clear()
     r = await S.move_joints({"1": 0.5})
     check("move allowed when mirroring queue missing", r["bus"] == "FOLLOW")
-    await expect_error("teach_mode needs mirroring driver", S.teach_mode(True), "not found")
 
     await motion_engine_tests()
     await learning_tests()
@@ -376,7 +356,8 @@ async def main():
 
     tools = sorted(t.name for t in await S.mcp.list_tools())
     print("tools:", tools)
-    check("teach_mode tool registered", "teach_mode" in tools)
+    check("teach mode + recording tools removed (17 tools)",
+          not ({"teach_mode", "skill_from_history"} & set(tools)) and len(tools) == 17, len(tools))
     check("motion tools registered", {"go_to", "play_motion", "stop_motion"} <= set(tools))
     print(f"\n{'ALL PASSED' if not FAILS else f'{len(FAILS)} FAILED: {FAILS}'}")
     sys.exit(1 if FAILS else 0)
@@ -403,24 +384,32 @@ def make_demo(hz=25, idle_before=10.0, move=3.0, idle_after=5.0):
         out.append(history_entry(10**12 + int(t * 1e9), {2: 2000 + int(400 * u), 8: 2800 - int(600 * u)}))
     return out
 
+async def learn_from(history, name, since_ns, overwrite=False):
+    """Create a skill the self-learning way: start_attempt at station time since_ns, then the
+    follower history of the attempt, then save_attempt_as_skill."""
+    SIM.update(on=False, stamp=since_ns)
+    await S.start_attempt(f"test task {name}")
+    HISTORY[:] = history
+    try:
+        return await S.save_attempt_as_skill(name, overwrite=overwrite)
+    finally:
+        HISTORY[:] = []
+
 async def learning_tests():
-    print("\n--- learning: record -> skill -> practice ladder ---")
+    print("\n--- skills -> practice ladder ---")
     MIRROR.update(present=False); MIRROR["links"].clear(); MIRROR["modes"].clear()
-    HISTORY[:] = make_demo()
-    r = await S.skill_from_history("pick_a", seconds=60, description="pick cube from spot A")
-    check("skill recorded from history", r["samples"] > 20 and r["warning"] is None, str(r))
-    check("idle time trimmed (3 s move + padding)", 3.0 <= r["duration_s"] <= 3.8, r["duration_s"])
+    r = await learn_from(make_demo(), "pick_a", 10**12)
+    check("skill learned from the attempt's history", r["kept_poses"] >= 2 and r["warning"] is None, str(r))
     check("history rate measured (~25 Hz), not assumed", abs(r["history"]["rate_hz"] - 25) < 1, r["history"])
     check("asked for >255 entries (multi-byte offset)", max(READS_N) > 255, READS_N)
-    check("reports real coverage when history is shorter than requested", r["history"]["covered_s"] < 60, r["history"])
     sk = json.load(open(os.path.join(os.environ["SKILLS_DIR"], "pick_a.json")))
-    check("skill file has motion, raw, calibration, keyframes, practice 0.5",
-          sk["motion"] and "raw" in sk["motion"][0] and sk["calibration"]["ranges"]["2"] == [1000, 3000]
-          and sk["keyframes"][0]["label"] == "start" and sk["practice"]["speed_scale"] == 0.5)
-    await expect_error("refuses to overwrite without overwrite=True", S.skill_from_history("pick_a"), "exists")
-    await expect_error("bad skill name rejected", S.skill_from_history("Pick A!"), "skill name")
-    HISTORY[:] = make_demo(move=0.0)
-    await expect_error("no movement -> clear error about teach mode", S.skill_from_history("still"), "teach mode")
+    check("skill file has keyframes with raw, calibration, practice 0.5",
+          sk["keyframes"] and "raw" in sk["keyframes"][0] and sk["calibration"]["ranges"]["2"] == [1000, 3000]
+          and sk["practice"]["speed_scale"] == 0.5)
+    SIM.update(on=False, stamp=10**12); await S.start_attempt("again")
+    HISTORY[:] = make_demo()
+    await expect_error("refuses to overwrite without overwrite=True", S.save_attempt_as_skill("pick_a"), "exists")
+    await expect_error("bad skill name rejected", S.save_attempt_as_skill("Pick A!"), "skill name")
     HISTORY[:] = []
 
     ls = await S.list_skills()
@@ -480,9 +469,7 @@ async def learning_tests():
     check("every run logged in runs.jsonl", len(runs) == 6 and all("practice_after" in x for x in runs), len(runs))
 
     # --- speed override can't skip the practice ladder ---
-    HISTORY[:] = make_demo()
-    await S.skill_from_history("pick_b")
-    HISTORY[:] = []
+    await learn_from(make_demo(), "pick_b", 10**12)
     reset_follower(); MODEL["FOLLOW"][8].update(pos=2800, goal=2800)
     r = await S.run_skill("pick_b", speed_scale=2.0)
     check("new skill: speed_scale override capped to practice speed", r["speed_scale"] == 0.5 and "capped" in (r["speed_note"] or ""), str(r))
@@ -493,20 +480,20 @@ async def learning_tests():
     await S.report_skill_result(r["run_id"], True)
     await expect_error("speed_scale 0 rejected", S.run_skill("pick_b", speed_scale=0), "> 0")
 
-    # --- long, fast history (Station writes ~400 entries/s): strided read covers the request ---
-    HISTORY[:] = make_demo(hz=200, idle_before=40.0, move=3.0, idle_after=5.0)
-    r = await S.skill_from_history("long_a", seconds=45)
-    check("fast history read with a stride", r["history"]["read_step"] > 1 and r["history"]["covered_s"] >= 44.5
-          and "note" not in r["history"] and 3.0 <= r["duration_s"] <= 3.8, r["history"])
+    # --- long, fast history (Station writes ~400 entries/s): strided read covers the whole attempt ---
+    long_demo = make_demo(hz=200, idle_before=40.0, move=3.0, idle_after=5.0)
+    r = await learn_from(long_demo, "long_a", 10**12)
+    check("fast history read with a stride", r["history"]["read_step"] > 1 and r["attempt_s"] >= 47.5
+          and "note" not in r["history"], r["history"])
     cap = S.HISTORY_MAX_ENTRIES
     S.HISTORY_MAX_ENTRIES = 300
-    r = await S.skill_from_history("long_b", seconds=45)
-    check("entry cap raises the stride instead of cutting the recording short",
-          r["history"]["entries_read"] <= 300 and r["history"]["covered_s"] >= 44.5, r["history"])
+    r = await learn_from(long_demo, "long_b", 10**12)
+    check("entry cap raises the stride instead of cutting the attempt short",
+          r["history"]["entries_read"] <= 300 and r["attempt_s"] >= 47.5, r["history"])
     S.HISTORY_MAX_ENTRIES = cap
-    r = await S.skill_from_history("long_c", seconds=120)
-    check("asking for more than Station has: warns with real coverage", "only goes back" in r["history"].get("note", ""), r["history"])
-    HISTORY[:] = []
+    r = await learn_from(long_demo, "long_c", 10**12 - 60 * 10**9)
+    check("attempt older than Station's history: warns with real coverage",
+          "starts 60.0 s after start_attempt" in r["history"].get("note", ""), r["history"])
 
     # --- hand-written keyframe skills in the documented format ---
     hand = {"name": "wave", "bus": "FOLLOW", "status": "ok",
@@ -694,7 +681,7 @@ async def motion_engine_tests():
     check("speed_scale 2 halves the plan", abs(r2["planned_s"] - 0.5) < 0.05 and r2["completed"], str(r2))
 
     reset_follower(); MIRROR.update(present=True); MIRROR["links"]["FOLLOW"] = "LEAD"
-    await expect_error("fast moves refused while teach mode is on", S.go_to({"shoulder": 0.6}), "teach_mode(on=False)")
+    await expect_error("fast moves refused while mirroring is on", S.go_to({"shoulder": 0.6}), "turn mirroring off")
     MIRROR["links"].clear(); MIRROR.update(present=False)
     SIM["on"] = False
 

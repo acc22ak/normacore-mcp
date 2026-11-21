@@ -100,10 +100,6 @@ Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future ru
   ≥ 100 steps (viewer's `MIN_CALIBRATED_RANGE`). Station's own mirroring adds a small `safety_margin` that we don't.
 
 ## Unverified on hardware (check these on the real robot, then move them to Learned facts)
-- Whether leader and follower normalized poses really line up after both are calibrated (the code maps % of range to % of range; physical alignment depends on how each arm was calibrated).
-- How long Station takes to turn follower torque off after STOP, and how far the arm sags before `teach_mode(off)` re-holds it.
-- How fast the follower jumps when mirroring starts (mirroring sets speed by distance, `mirror.rs` `get_speed_and_accel_by_distance`).
-- Read rate of `st3215/inference` (needed for `skill_from_history`).
 - Which gripper direction is open.
 - Engine defaults are untuned guesses: `MAX_VEL_NORM` 0.5, `TRACK_ERR_MAX` 0.10 × 5 ticks, `MOTION_ACCEL` 50. Measure `max_tracking_error`,
   `late_ticks` and `elapsed_s` vs `planned_s` from real `play_motion` reports, then tune (raising limits needs the human's OK, §5).
@@ -155,9 +151,8 @@ Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future ru
 6. If mirroring (teleop) targets the follower, don't move it: two writers fight over the arm and Station won't stop
    them. `server.py` enforces this: `move_joints`/`nudge_joints`/`set_gripper`/`hold` refuse while the follower is a
    mirroring target or when the bus is a leader (fails closed if `inference/mirroring` can't be read; allowed if the
-   queue doesn't exist, i.e. no mirroring driver). `relax` is always allowed. Stop mirroring with `teach_mode(on=False)`.
-7. `teach_mode(on=True)` makes the follower jump to the leader's pose, so it refuses if any joint differs by more than
-   `TEACH_MAX_POSE_DIFF` (0.2) unless `force=True`. `teach_mode(on=False)` waits for Station's torque-off, then holds.
+   queue doesn't exist, i.e. no mirroring driver). `relax` is always allowed. There is no tool to switch mirroring:
+   if it's on, ask the human to turn it off on the follower's bus card in the web UI. The leader arm is never used.
 
 ## Dev notes
 - Offline test without hardware: `python tests/offline_test.py . <norma-core path>` (monkeypatches queue reads/sends with simulated frames).
@@ -173,19 +168,18 @@ Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future ru
 
 # Strategy (why we win)
 Other teams will likely have Claude guess raw joint angles from images, which fails on stage. We keep
-geometry out of the LLM: **humans teach skills by hand with the leader arm, Claude learns them instantly,
-plans with them in plain English, verifies every step on camera, and keeps improving them.**
-Pitch: *"Show it once by hand, then just tell it what to do. It watches, acts, checks itself and gets better."*
+geometry out of the LLM: **Claude solves a task once, slowly, with both cameras, turns its own success into a
+fast skill, and practises until it's fast. No human demonstration, no hand-coded angles.**
+Pitch: *"Just tell it what to do. It figures it out with its eyes, then teaches itself to do it fast."*
 
 # Roadmap (update the Status column as work lands)
 | P | Component | File(s) | What | Status |
 |---|---|---|---|---|
 | P0 | Station I/O | `station_io.py` | split connection/state/camera/command code out of `server.py` | todo |
 | P0 | Fast playback engine | `motion.py` (pure logic), `server.py` (`go_to`, `play_motion`, `stop_motion`) | ~20 Hz streaming of eased keyframes or dense recordings, `speed_scale`, per-joint velocity cap (`MAX_VEL_NORM`), soft limits (`data/limits.json`); aborts + holds on servo error bits (voltage ignored like Station), over-current (=collision), tracking error, stale state, stop/hold/relax, cancellation (shielded hold); gripper over-current = grasp (stops squeezing) | done, offline-tested (simulated servos); **not yet tried on hardware** |
-| P0 | Teach mode + mirroring guard | `server.py` | `teach_mode(on/off)` starts/stops Station's built-in leader→follower mirroring; every motion tool refuses while the follower is a mirroring target | done, offline-tested; **not yet tried on hardware** |
+| P0 | Mirroring guard | `server.py` | every motion tool refuses while the follower is a mirroring target (Station teleop switched on in the web UI) or the bus is a leader | done, offline-tested; **not yet tried on hardware** |
 | P0 | Poses | `poses.py`, `data/poses.json` | `save_pose`, `list_poses`, `go_to_pose` | todo |
 | P0 | Self-learning | `learn.py` (pure), `server.py` | `start_attempt(task)` + `save_attempt_as_skill(name)`: Claude's own slow, verified attempt -> rest poses -> straight-line merge (gripper changes kept) -> timed keyframes + raw + start pose + calibration snapshot | done, offline-tested; **not yet tried on hardware** |
-| P0 | Demonstration capture (optional) | `learn.py` (pure), `server.py` | `skill_from_history(name, seconds=60)`: reads the last N s of `st3215/inference` (rate measured from bus stamps; offsets >255 encoded little-endian), trims idle, ~20 Hz dense motion + raw + keyframe summary + calibration snapshot | done, offline-tested; **not yet tried on hardware** |
 | P1 | Skills + practice ladder | `server.py`, `data/skills/*.json`, `data/runs.jsonl` | `list_skills`, `run_skill` (fast, one call), `report_skill_result`; ladder 0.5 → 0.75 → 1.0 → … after **2 successes in a row**, one level down on failure; engine abort = failure; calibration change → replay from raw at ≤0.5 + `needs_check` | done, offline-tested; **not yet tried on hardware** |
 | P1 | Drift handling | `motion.py`, `poses.py`, `data/compensation.json` | calibration snapshot + raw positions in skills/poses, replay-from-raw when ranges changed, goal-vs-present tracking error, per-joint compensation, `check_drift` (home pose + landmark). See Learning protocol §6. `range_frozen` + warning in `get_robot_state` already done | partly done |
 | P1 | Vision | `vision.py` | `look(grid=True)` labelled A1–C3 grid on the desk cam; `find_objects(color)` HSV blobs → pixel + cell | todo |
@@ -196,7 +190,7 @@ Pitch: *"Show it once by hand, then just tell it what to do. It watches, acts, c
 
 Final tool surface: perception (`look`, `list_cameras`, `set_camera_role`, `find_objects`, `gripper_status`, `get_robot_state`), motion (`go_to`,
 `play_motion`, `stop_motion`, `go_to_pose`, `nudge_joints`, `grasp`, `release`), planned (`edit_skill`, `pick`, `place`), learning
-(`start_attempt`, `save_attempt_as_skill`, optional `teach_mode` + `skill_from_history`, `save_pose`), skills (`list_skills`, `run_skill`, `report_skill_result`), safety (`hold`, `relax`).
+(`start_attempt`, `save_attempt_as_skill`, `save_pose`), skills (`list_skills`, `run_skill`, `report_skill_result`), safety (`hold`, `relax`).
 **If a tool you need for the protocol below doesn't exist yet, build it (roadmap order) rather than improvising with raw joint moves.**
 
 ---
@@ -218,8 +212,6 @@ No human demonstration needed: you solve the task once, slowly, and your own suc
    gripper empty"). Commit the new skill to git (`learn: add skill <name>`).
 6. First replay is at speed 0.5 (practice ladder). Reset the scene first: put the object back, or run the reverse skill.
 
-Optional, if the human prefers to show it: `teach_mode(on=True)`, the human moves the leader arm, then
-`skill_from_history(name, seconds)` (dense recording of the follower). Same practice ladder afterwards.
 ## 2. Every time you run a skill → practice ladder (this is how it gets fast)
 - Before: `look` once, check the preconditions (object on its marked spot?). Then `run_skill(name)`: the whole
   motion runs in one call, no thinking in between.
@@ -232,7 +224,7 @@ Optional, if the human prefers to show it: `teach_mode(on=True)`, the human move
 
 ## Marked spots (the stage)
 Fast skills replay recorded motion without looking in between, so they only work if things are where they were during
-the demo (teach-mode deadband alone is ~1.3 cm at full reach, see §6). The team marks: the arm base outline, the desk
+the learning attempt (calibration drift and gear play add up, see §6). The team marks: the arm base outline, the desk
 camera position, corner guides for each object spot (A, B, ...) and a home landmark. Refer to spots by their letters,
 and before every `run_skill` check on camera that the object sits on its spot; if not, ask the human to put it back
 (or adjust the skill per §3) instead of running blind.
@@ -245,7 +237,7 @@ Diagnose from the camera frames, then make **one change at a time**:
 - too slow/jerky → adjust segment durations.
 Bump `version`, add a `changelog` entry ("v3: raised approach by 0.02 on shoulder, missed cube by ~1 cm"), keep
 `last_good` (the previous working keyframes) so you can roll back, re-test at 50% speed, then commit
-(`learn: <skill> v3 - <why>`). After 3 failed fixes in a row, stop and ask the human to re-demonstrate.
+(`learn: <skill> v3 - <why>`). After 3 failed fixes in a row, re-learn it from scratch (`start_attempt`, solve with the cameras, `save_attempt_as_skill(..., overwrite=True)`) and tell the human.
 
 ## 4. When the *code* is the limit → adjust the code
 If the same kind of failure repeats across skills (bad keyframe detection, missing tool, vision misses
@@ -286,14 +278,11 @@ and design for correcting it.
   (`st3215/src/calibrate.rs` `calculate_arc`). A hand-moved leader calibration is only as good as how far each joint was pushed.
 - **Until calibration is frozen (web UI Save), Station widens a joint's range every time it reaches a new position**
   (`st3215/src/port_meta.rs:407-423`, skipped once frozen at `:349`). The same physical pose then gets a different
-  normalized value. `get_robot_state` reports `range_frozen` and a warning per bus: get unfrozen buses saved before teaching.
+  normalized value. `get_robot_state` reports `range_frozen` and a warning per bus: get unfrozen buses saved before learning skills.
 - Re-calibrating changes `range_min/max`, so **every normalized value in saved skills shifts**. Raw encoder positions are
   the stabler reference: auto-calibration writes the servo Position Offset (EEPROM 0x1F) to 0
   (`auto_calibrate/calibrator.rs:423-424, 500`), so raw positions keep the same zero unless a servo horn is remounted or
   the offset is changed.
-- In teach mode the follower ignores leader differences of ≤20 steps (`motors-mirroring/src/inference/mirror.rs:190-195`,
-  `deadband: 20` in `config.rs:48`). That's ≈1.8° per joint (360/4096×20), so **demos carry up to that error per joint**
-  before anything else.
 
 **Expected but unverified** (measure on the robot, then move to Learned facts): gear backlash, sag under gravity/load
 (shoulder/elbow), servo warm-up, the desk camera or table being bumped, objects not exactly where they were during the demo.
@@ -347,9 +336,9 @@ and design for correcting it.
   "source": {"type": "demo", "station_time_range_ns": [0, 0]}
 }
 ```
-Recorded skills (from `skill_from_history`) store a dense `"motion": [{"t", "joints", "raw"}, ...]` that `run_skill`
-plays, plus `"practice": {"level", "streak", "speed_scale"}`; their `keyframes` are a readable summary
-(`start`/`pause`/`gripper turns`/`end`). Hand-written skills may instead give only `keyframes` with `duration_s`.
+Self-learned skills (from `save_attempt_as_skill`) store `keyframes` with `duration_s` + `raw`, a `start_pose`/`start_raw`
+that `run_skill` glides to first, and `"practice": {"level", "streak", "speed_scale"}`. `run_skill` also still plays
+older skill files with a dense `"motion": [{"t", "joints", "raw"}, ...]`.
 Keyframes may list only the joints that change; the others keep their current value. `{"gripper": "open"|"close"}`
 needs `GRIPPER_OPEN_NORM` (which end is open, unverified on our arm); `{"gripper": 0.3}` always works.
 Composite `{"skill": "<other skill>"}` steps are planned but `run_skill` refuses them for now. `raw` and `calibration` are there so a skill survives re-calibration (§6 rule 2): `run_skill` replays from

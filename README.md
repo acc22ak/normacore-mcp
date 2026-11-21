@@ -8,8 +8,7 @@ and **move the ElRobot follower arm** through the NormaCore Station API.
 ```
 
 Tools: `look`, `list_cameras`, `get_robot_state`, `move_joints`, `nudge_joints`,
-`set_gripper`, `hold`, `relax` (safe stop: torque off), `teach_mode` (Station's built-in leader→follower
-mirroring on/off; motion tools refuse while it's on), `set_camera_role` (name cameras "desk" / "gripper" so
+`set_gripper`, `hold`, `relax` (safe stop: torque off), `set_camera_role` (name cameras "desk" / "gripper" so
 `look("desk")` works; saved in `data/cameras.json`).
 
 **Fast mode:** `go_to` (one smooth move) and `play_motion` (a whole sequence of keyframes or a dense recording,
@@ -23,8 +22,7 @@ its own attempt into a fast skill (thinking pauses and small steps removed: a ~2
 tests). Next time it runs the skill in one call. Say "practise it" to have it speed itself up (it alternates A→B and
 B→A, so nobody has to reset the cube).
 
-**Optional, showing it by hand —** **Learn → practice → fast:** demonstrate with `teach_mode(on=True)`, then `skill_from_history("pick_a", seconds=60)`
-saves what the follower did in the last minute as a skill. `run_skill` plays it in one call; after each run Claude
+**Skills and speed:** `start_attempt` / `save_attempt_as_skill` learn, `list_skills` shows them, `run_skill` plays one in one call; after each run Claude
 `look`s once and calls `report_skill_result`. Every **2 successes in a row** raise the speed one level
 (0.5 → 0.75 → 1.0 → …), a failure lowers it. Skills live in `data/skills/`, runs in `data/runs.jsonl`.
 Mark the object spots on the table (tape corner guides): fast replays don't look while moving.
@@ -123,7 +121,7 @@ claude mcp add normacore \
   -e FOLLOWER_BUS=<FOLLOWER_SERIAL> \
   -- $PWD/.venv/bin/python $PWD/server.py
 ```
-Then in `claude`: `/mcp` should list `normacore` with 19 tools.
+Then in `claude`: `/mcp` should list `normacore` with 17 tools.
 Then name the cameras once: ask Claude to `look`, tell which picture is which, and `set_camera_role` them
 (or set `CAMERAS`). Station itself has no idea which camera is the gripper cam. Roles are saved by the
 camera's USB vendor:product:serial, so they survive replugging it or moving it to another port.
@@ -145,8 +143,7 @@ env = { NORMA_CORE_REPO = "/Users/you/norma-core", STATION_HOST = "localhost", F
 | `MAX_STEP_NORM` | `0.15` | max joint change per call (0..1 of range); bigger requests get clamped |
 | `MOVE_SPEED` | `600` | servo speed in steps/s |
 | `GRIPPER_MOTOR_ID` | `8` | `6` for an SO-101 |
-| `LEADER_BUS` | auto if exactly 2 buses | leader arm serial, used by `teach_mode`; never commanded |
-| `TEACH_MAX_POSE_DIFF` | `0.2` | `teach_mode(on)` refuses if leader/follower poses differ more than this (normalized) |
+| `LEADER_BUS` | — | optional leader arm serial; it is never commanded (Station's mirroring leaders are refused anyway) |
 | `CAMERAS` | — | default camera roles, e.g. `desk=32e6:9228:202604081837,gripper=3f2a` (`camera_id` from `list_cameras`, queue id or queue hash prefix); `data/cameras.json` wins |
 | `CAMERAS_FILE` | `data/cameras.json` | where `set_camera_role` saves roles |
 | `MAX_VEL_NORM` | `0.5` | fast-mode speed cap per joint (normalized range per second); untuned, start low |
@@ -154,7 +151,7 @@ env = { NORMA_CORE_REPO = "/Users/you/norma-core", STATION_HOST = "localhost", F
 | `CURRENT_LIMIT` / `CURRENT_LIMITS` | `100` / — | fast-mode collision limit (same units as Station's current threshold); per motor e.g. `8:40,5:60` |
 | `TRACK_ERR_MAX` / `TRACK_ERR_TICKS` | `0.10` / `5` | abort when a joint lags its target this much for this many ticks |
 | `SKILLS_DIR` / `RUNS_FILE` | `data/skills` / `data/runs.jsonl` | where skills and the run log are saved |
-| `HISTORY_MAX_ENTRIES` | `20000` | most entries one `skill_from_history` read transfers; longer spans use a bigger server-side stride, never a shorter recording |
+| `HISTORY_MAX_ENTRIES` | `20000` | most entries one history read (`save_attempt_as_skill`) transfers; longer attempts use a bigger server-side stride, never a shorter one |
 | `GRIPPER_OPEN_NORM` | — | `1` or `0`: which end of the gripper range is open, for `{"gripper": "open"/"close"}` skill steps. Check with `set_gripper` + `look` first |
 | `LIMITS_FILE` | `data/limits.json` | optional soft limits per joint, e.g. `{"2": [0.1, 0.9]}` |
 | `FRAME_MAX_AGE_S` | `2.0` | `look` marks a camera frame older than this as STALE (e.g. camera unplugged or frozen). Assumes station and MCP share a clock |

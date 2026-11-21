@@ -12,10 +12,8 @@ Env vars:
   MAX_STEP_NORM     max change per joint per move call, in normalized units (0..1).
                     Default 0.15. Bigger requests are clamped, not rejected.
   MOVE_SPEED        servo goal speed (steps/s) written before each move. Default 600.
-  LEADER_BUS        ST3215 bus serial of the leader arm (for teach_mode). If unset and
-                    the station has exactly two buses, the non-follower one is used.
-  TEACH_MAX_POSE_DIFF  teach_mode(on) refuses (unless force=True) when any joint of the
-                    leader and follower differs by more than this (normalized). Default 0.2.
+  LEADER_BUS        optional: ST3215 bus serial of the leader arm, so it is never commanded
+                    (buses Station marks as mirroring leaders are refused anyway).
   CAMERAS           optional default camera roles, e.g. "desk=32e6:9228:202604081837,gripper=3f2a"
                     (camera_id from list_cameras, queue id or queue hash prefix). Roles saved
                     with set_camera_role in data/cameras.json (CAMERAS_FILE) take precedence.
@@ -67,7 +65,6 @@ FOLLOWER_BUS = os.environ.get("FOLLOWER_BUS", "").strip()
 MAX_STEP_NORM = float(os.environ.get("MAX_STEP_NORM", "0.15"))
 MOVE_SPEED = int(os.environ.get("MOVE_SPEED", "600"))
 LEADER_BUS = os.environ.get("LEADER_BUS", "").strip()
-TEACH_MAX_POSE_DIFF = float(os.environ.get("TEACH_MAX_POSE_DIFF", "0.2"))
 # A camera frame older than this is reported as STALE by `look`. Camera queues
 # persist across restarts, so an unplugged or frozen camera still has a "latest"
 # frame. Age = this machine's clock minus the frame's station wall-clock stamp,
@@ -298,34 +295,13 @@ async def guard_motion(serial: str) -> None:
     leader = _is_mirrored_follower(ms, serial)
     if leader is not None:
         raise RuntimeError(
-            f"bus {serial} is being mirrored from leader {leader} (teach mode is on); two writers "
-            "would fight over the arm. Call teach_mode(on=False) first.")
+            f"bus {serial} is being mirrored from leader {leader} (Station teleop is on); two writers "
+            "would fight over the arm. Ask the human to turn mirroring off on the follower's bus card "
+            "in the Station web UI (http://localhost:8889).")
     is_leader = serial == LEADER_BUS or ms["modes"].get(serial) == "BR_LEADER" \
         or any(link["leader"] == serial for link in ms["links"])
     if is_leader:
         raise RuntimeError(f"bus {serial} is the LEADER arm; refusing to command it.")
-
-
-def pick_leader(buses: dict[str, dict], follower: str, ms: dict) -> str:
-    if LEADER_BUS:
-        if LEADER_BUS not in buses:
-            raise RuntimeError(f"LEADER_BUS {LEADER_BUS!r} not found; available: {list(buses)}")
-        return LEADER_BUS
-    known = [s for s, mode in ms["modes"].items() if mode == "BR_LEADER" and s in buses and s != follower]
-    if len(known) == 1:
-        return known[0]
-    others = [s for s in buses if s != follower]
-    if len(others) == 1:
-        return others[0]
-    raise RuntimeError(f"can't tell which bus is the leader among {others}; set LEADER_BUS.")
-
-
-def _mirroring_command(kind, source: str, targets: list[str]):
-    def mb(s):
-        return mirroring.MirroringBus(type=mirroring.BusType.MBT_ST3215, unique_id=s)
-    cmd = mirroring.Command(type=kind, source=mb(source), targets=[mb(t) for t in targets])
-    return station_commands.DriverCommand(
-        type=drivers.StationCommandType.STC_MOTOR_MIRRORING_COMMAND, body=cmd.encode())
 
 
 def _sync_write(bus: str, address: int, writes: list[tuple[int, bytes]]):
@@ -782,79 +758,6 @@ async def hold(bus: str | None = None) -> str:
     return f"holding pose on {serial}"
 
 
-async def _wait_for(pred, timeout_s: float = 2.0, every_s: float = 0.1):
-    deadline = time.monotonic() + timeout_s
-    while True:
-        result = await pred()
-        if result or time.monotonic() > deadline:
-            return result
-        await asyncio.sleep(every_s)
-
-
-@mcp.tool()
-async def teach_mode(on: bool, force: bool = False) -> dict:
-    """Turn Station's built-in leader -> follower mirroring on/off (for human demonstrations).
-
-    on=True: the follower copies the leader arm. It JUMPS to the leader's pose immediately,
-      so this refuses if any joint differs by more than TEACH_MAX_POSE_DIFF unless force=True.
-      Move the leader close to the follower's pose first.
-    on=False: stops mirroring. Station turns the follower's torque off when it does, so this
-      waits for that and then holds the current pose. The arm may sag briefly; support it.
-    While teach mode is on, all motion tools refuse to move the follower.
-    """
-    buses = await read_buses()
-    follower = pick_bus(buses, None)
-    ms = await mirroring_state()
-    if not ms["available"]:
-        raise RuntimeError(f"queue {MIRRORING_QUEUE} not found: is the motors-mirroring driver running in station?")
-    current_leader = _is_mirrored_follower(ms, follower)
-
-    if on:
-        leader = pick_leader(buses, follower, ms)
-        if current_leader == leader:
-            return {"teach_mode": "already on", "leader": leader, "follower": follower}
-        lm, fm = buses[leader]["motors"], buses[follower]["motors"]
-        problems = {}
-        for mid, f in fm.items():
-            l = lm.get(mid)
-            if l is None:
-                problems[f["joint"]] = "missing on leader"
-            elif not (l["calibrated"] and f["calibrated"]):
-                problems[f["joint"]] = "not calibrated on leader and/or follower"
-            elif abs(l["position_norm"] - f["position_norm"]) > TEACH_MAX_POSE_DIFF:
-                problems[f["joint"]] = {"leader": l["position_norm"], "follower": f["position_norm"]}
-        if problems and not force:
-            return {"teach_mode": "refused", "reason": "follower would jump; align the leader first or pass force=True",
-                    "problems": problems}
-        await send_commands(await client(), [_mirroring_command(
-            mirroring.CommandType.CT_START_MIRROR, leader, [follower])])
-
-        async def linked():
-            return _is_mirrored_follower(await mirroring_state(), follower) == leader
-        ok = await _wait_for(linked)
-        return {"teach_mode": "on" if ok else "sent, but not confirmed in inference/mirroring",
-                "leader": leader, "follower": follower, "forced_past": problems or None}
-
-    if current_leader is None:
-        return {"teach_mode": "already off", "follower": follower}
-    # Same shape the web UI sends to stop (station-viewer/src/st3215/BusCard.tsx): source = follower.
-    await send_commands(await client(), [_mirroring_command(
-        mirroring.CommandType.CT_STOP_MIRROR, follower, [])])
-
-    async def unlinked_and_limp():
-        if _is_mirrored_follower(await mirroring_state(), follower) is not None:
-            return False
-        motors = (await read_buses())[follower]["motors"]
-        return all(not m["torque_on"] for m in motors.values())
-    limp = await _wait_for(unlinked_and_limp)
-    unlinked = _is_mirrored_follower(await mirroring_state(), follower) is None
-    if not unlinked:
-        return {"teach_mode": "stop sent, but mirroring still active", "follower": follower}
-    await _hold(follower, await read_buses())
-    return {"teach_mode": "off", "follower": follower, "holding": True,
-            "note": None if limp else "didn't observe Station's torque-off within 2 s; held anyway"}
-
-
 # ----------------------------------------------------------------------------
 # fast playback engine: runs whole motions inside the server (~20 Hz), so Claude
 # plans once and checks once instead of thinking between every small step.
@@ -1177,56 +1080,6 @@ async def _read_history(serial_hint: str | None, seconds: float | None = None, h
     return serial, samples, {"info": info, "last": snaps[-1]}
 
 
-@mcp.tool()
-async def skill_from_history(name: str, seconds: float = 60.0, description: str = "",
-                             overwrite: bool = False, hz: float = 20.0, bus: str | None = None) -> dict:
-    """Turn what the follower arm did in the last `seconds` (default 60) into a skill.
-
-    Use right after a human demonstrates with teach_mode(on=True) (the follower copies the leader).
-    Still time before and after the movement is trimmed. Saves data/skills/<name>.json with the
-    dense motion (~hz samples/s, normalized + raw positions), a keyframe summary, and the
-    calibration at recording time. New skills start the practice ladder at speed 0.5.
-    Afterwards: teach_mode(on=False), then run_skill(name) while the human watches.
-    """
-    path = _skill_path(name)
-    old = None
-    if path.exists():
-        if not overwrite:
-            raise RuntimeError(f"skill {name!r} exists; pass overwrite=True to replace it (version goes up)")
-        old = _load_skill(name)
-    serial, samples, meta = await _read_history(bus, seconds, hz)
-    moving = L.trim_idle(samples)
-    if len(moving) < 2:
-        raise RuntimeError(f"the follower didn't move in the last {seconds:g} s ({meta['info']}). "
-                           "Was teach mode on while the human demonstrated?")
-    dense = L.downsample(moving, hz)
-    last = meta["last"]["motors"]
-    skill = {
-        "name": name,
-        "description": description,
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "bus": serial,
-        "source": {"type": "demo", **meta["info"], "duration_s": round(dense[-1][0], 2), "samples": len(dense)},
-        "calibration": {"frozen": all(m["range_frozen"] for m in last.values()),
-                        "ranges": {str(j): [m["range_min"], m["range_max"]] for j, m in last.items()}},
-        "motion": [{"t": round(t, 3), "joints": {str(j): v for j, v in n.items()},
-                    "raw": {str(j): v for j, v in r.items()}} for t, n, r in dense],
-        "keyframes": L.extract_keyframes(dense, GRIPPER_ID),
-        "practice": {"level": 0, "streak": 0, "speed_scale": L.SPEED_LEVELS[0]},
-        "status": "new",
-        "version": (old or {}).get("version", 0) + 1,
-        "stats": {"runs": 0, "success": 0},
-        "changelog": (old or {}).get("changelog", []) + [{"version": (old or {}).get("version", 0) + 1,
-                                                          "note": f"recorded from last {seconds:g} s of history"}],
-    }
-    _save_json(path, skill)
-    warn = None if skill["calibration"]["frozen"] else \
-        "calibration was not saved/frozen while recording: positions may drift; press Save in the web UI"
-    return {"saved": str(path), "duration_s": skill["source"]["duration_s"], "samples": len(dense),
-            "keyframes": [k["label"] for k in skill["keyframes"]], "history": meta["info"], "warning": warn,
-            "next": "teach_mode(on=False), then run_skill(name) at practice speed 0.5 with a human watching"}
-
-
 SKILL_BASE_VEL = float(os.environ.get("SKILL_BASE_VEL", "0.25"))  # norm/s peak at speed_scale 1.0
 ATTEMPT_FILE = Path(os.environ.get("ATTEMPT_FILE", str(Path(__file__).resolve().parent / "data" / "attempt.json")))
 
@@ -1298,7 +1151,7 @@ async def save_attempt_as_skill(name: str, description: str = "", overwrite: boo
     }
     _save_json(path, skill)
     ATTEMPT_FILE.unlink(missing_ok=True)
-    return {"saved": str(path), "attempt_s": meta["info"]["covered_s"], "rest_poses": len(rest),
+    return {"saved": str(path), "attempt_s": meta["info"]["covered_s"], "history": meta["info"], "rest_poses": len(rest),
             "kept_poses": len(poses), "skill_s": {str(s): round(skill_s / s, 2) for s in (0.5, 1.0, 2.0)},
             "warning": None if skill["calibration"]["frozen"] else "calibration not saved/frozen: press Save in the web UI",
             "next": "reset the scene (or learn the reverse task), then run_skill(name) and report_skill_result"}
