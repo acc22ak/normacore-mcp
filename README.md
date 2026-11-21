@@ -8,7 +8,8 @@ and **move the ElRobot follower arm** through the NormaCore Station API.
 ```
 
 Tools: `look`, `list_cameras`, `get_robot_state`, `move_joints`, `nudge_joints`,
-`set_gripper`, `hold`, `relax` (safe stop: torque off).
+`set_gripper`, `hold`, `relax` (safe stop: torque off), `teach_mode` (Station's built-in leader→follower
+mirroring on/off; motion tools refuse while it's on).
 
 ---
 
@@ -90,7 +91,8 @@ the mirror source; the follower now copies the leader. Set it back to none to st
 ```bash
 git clone --depth 1 https://github.com/norma-core/norma-core.git ~/norma-core
 cd normacore-mcp
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+# needs Python >= 3.10 (the mcp package requires it); macOS system python3 is 3.9, so use uv:
+uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt
 ```
 
 ### Claude Code
@@ -101,7 +103,7 @@ claude mcp add normacore \
   -e FOLLOWER_BUS=<FOLLOWER_SERIAL> \
   -- $PWD/.venv/bin/python $PWD/server.py
 ```
-Then in `claude`: `/mcp` should list `normacore` with 8 tools.
+Then in `claude`: `/mcp` should list `normacore` with 9 tools.
 
 ### Codex (`~/.codex/config.toml`)
 ```toml
@@ -120,6 +122,8 @@ env = { NORMA_CORE_REPO = "/Users/you/norma-core", STATION_HOST = "localhost", F
 | `MAX_STEP_NORM` | `0.15` | max joint change per call (0..1 of range); bigger requests get clamped |
 | `MOVE_SPEED` | `600` | servo speed in steps/s |
 | `GRIPPER_MOTOR_ID` | `8` | `6` for an SO-101 |
+| `LEADER_BUS` | auto if exactly 2 buses | leader arm serial, used by `teach_mode`; never commanded |
+| `TEACH_MAX_POSE_DIFF` | `0.2` | `teach_mode(on)` refuses if leader/follower poses differ more than this (normalized) |
 | `MCP_TRANSPORT` | `stdio` | `streamable-http` to run the server yourself (e.g. in a tmux pane to watch logs) |
 | `MCP_HOST` / `MCP_PORT` | `127.0.0.1` / `8790` | listen address for `streamable-http` |
 

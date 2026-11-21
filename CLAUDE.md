@@ -80,7 +80,17 @@ Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future ru
 - **Registers** (little-endian): torque enable `0x28` (u8), acceleration `0x29` (u8), goal position `0x2A` (u16),
   goal speed `0x2E` (u16), present position `0x38` (u16, bit 15 = sign; normalize to 0–4095),
   status `0x40` (u8), present current `0x45` (u16). Send speed/accel **before** goal position.
-- Normalized position = `(raw - range_min) / (range_max - range_min)`, which is the same convention as normvla `position_norm`.
+- Normalized position: `server.py` `to_norm`/`from_norm` are ports of Station's mirroring math
+  (`motors-mirroring/src/inference/normalize.rs`, `mirror.rs:96-98`). **Calibrated ranges can wrap past 4095→0**
+  (`range_max < range_min`, range size `(4096 - min) + max`). A joint counts as calibrated when its range size is
+  ≥ 100 steps (viewer's `MIN_CALIBRATED_RANGE`). Station's own mirroring adds a small `safety_margin` that we don't.
+
+## Unverified on hardware (check these on the real robot, then move them to Learned facts)
+- Whether leader and follower normalized poses really line up after both are calibrated (the code maps % of range to % of range; physical alignment depends on how each arm was calibrated).
+- How long Station takes to turn follower torque off after STOP, and how far the arm sags before `teach_mode(off)` re-holds it.
+- How fast the follower jumps when mirroring starts (mirroring sets speed by distance, `mirror.rs` `get_speed_and_accel_by_distance`).
+- Read rate of `st3215/inference` (needed for `skill_from_history`).
+- Which gripper direction is open.
 - Web UI: motor-ID change page (set IDs one servo at a time) and **Auto Calibrate → Save** per bus
   (disabled below 7.0 V bus voltage, so the leader is calibrated manually: Reset → move joints by hand → Save).
 - **Built-in teleop (motors-mirroring driver)**: Station mirrors leader → follower itself; no Python script needed.
@@ -93,9 +103,10 @@ Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future ru
   - Web UI: the follower's bus card has the mirror-source selector.
 - **No control arbitration yet**: if mirroring and our tools both write to the follower, last write wins (station-viewer
   ADR 0009 describes a backend authority lease, but it is *not implemented*). We must check mirroring state ourselves.
-- **Current protection lives in the mirroring path**: `st3215.current-threshold` (default 100) and per-motor overrides are
-  applied by the mirroring driver (blocks the overloading direction and holds). Our direct ST3215 writes don't appear to
-  go through it (not fully traced), so `motion.py` must do its own current/stall abort. Gripper squeezes can hit the threshold.
+- **Current protection exists only in the mirroring path**: the current threshold (default 100) and per-motor overrides
+  are read only by `motors-mirroring/src/config.rs:17-40` and used in `inference/mirror.rs` (blocks the overloading
+  direction and holds). Verified: no other Rust code under `software/` reads it, so our direct ST3215 writes have
+  **no** current protection. `motion.py` must do its own current/stall abort. Gripper squeezes can hit the threshold.
 - **macOS app (.dmg)** runs its own station in the background on 8888/8889 and keeps `station.yaml` + `station_data/`
   in `~/Library/Application Support/`. Don't start a second station alongside it (port clash); if you switch to a CLI/source
   build, copy the calibrated config over.
@@ -114,8 +125,11 @@ Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future ru
 4. Don't move uncalibrated joints or joints reporting `error_status != 0`.
 5. `relax` = torque off, and the arm falls. Use `hold` to freeze in place instead, unless something is jammed/overloaded.
 6. If mirroring (teleop) targets the follower, don't move it: two writers fight over the arm and Station won't stop
-   them. Check `inference/mirroring`; stop mirroring with `teach_mode(off)` (or the web UI) before driving.
-   **Current `server.py` does not check this yet** (roadmap P0).
+   them. `server.py` enforces this: `move_joints`/`nudge_joints`/`set_gripper`/`hold` refuse while the follower is a
+   mirroring target or when the bus is a leader (fails closed if `inference/mirroring` can't be read; allowed if the
+   queue doesn't exist, i.e. no mirroring driver). `relax` is always allowed. Stop mirroring with `teach_mode(on=False)`.
+7. `teach_mode(on=True)` makes the follower jump to the leader's pose, so it refuses if any joint differs by more than
+   `TEACH_MAX_POSE_DIFF` (0.2) unless `force=True`. `teach_mode(on=False)` waits for Station's torque-off, then holds.
 
 ## Dev notes
 - Offline test without hardware: `python tests/offline_test.py . <norma-core path>` (monkeypatches queue reads/sends with simulated frames).
@@ -140,7 +154,7 @@ Pitch: *"Show it once by hand, then just tell it what to do. It watches, acts, c
 |---|---|---|---|---|
 | P0 | Station I/O | `station_io.py` | split connection/state/camera/command code out of `server.py` | todo |
 | P0 | Motion core | `motion.py` | `execute_trajectory(targets, duration)`: ~20 Hz interpolation, per-joint velocity cap, abort+`hold` on servo error / current spike / soft-limit breach (`data/limits.json`); `gripper_status()` grasp detection (gripper stalled early + current high = holding) | todo |
-| P0 | Teach mode + mirroring guard | `station_io.py`, `server.py` | `teach_mode(on/off)` starts/stops Station's built-in leader→follower mirroring; every motion tool refuses while the follower is a mirroring target | todo |
+| P0 | Teach mode + mirroring guard | `server.py` | `teach_mode(on/off)` starts/stops Station's built-in leader→follower mirroring; every motion tool refuses while the follower is a mirroring target | done, offline-tested; **not yet tried on hardware** |
 | P0 | Poses | `poses.py`, `data/poses.json` | `save_pose`, `list_poses`, `go_to_pose` | todo |
 | P0 | Demonstration capture | `learn.py` | `record_demo` / `skill_from_history` (see Learning protocol) | todo |
 | P1 | Skills | `data/skills/*.json` | `list_skills`, `run_skill`, `edit_skill`; run log in `data/runs.jsonl` | todo |
