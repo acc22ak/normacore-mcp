@@ -316,11 +316,17 @@ async def move_until(joint: str, target: float, step: float = PROBE_STEP_NORM,
         latest = motors
         # Generous deadline so a stuck loop can never run forever.
         deadline = time.monotonic() + abs(target_total - start[mid]) / max(PROBE_VEL_NORM, 1e-6) + 5.0
+        estop_mode = None
         t0 = time.monotonic()
         try:
             while True:
                 if _abort.is_set():
                     abort_reason = "stopped by autopilot_stop / mode set to step"
+                    break
+                latch = await S.estop_latch()          # e-stop pressed in estop.py
+                if latch:
+                    estop_mode = latch["mode"]
+                    abort_reason = f"E-STOP {estop_mode.upper()} pressed by {latch.get('by') or '?'}"
                     break
                 if time.monotonic() > deadline:
                     stop_reason = "timeout: no contact and target not reached"
@@ -350,7 +356,8 @@ async def move_until(joint: str, target: float, step: float = PROBE_STEP_NORM,
             await S._hold_shielded(serial)
             raise
 
-        await S._hold_shielded(serial)               # hold wherever we ended up
+        if estop_mode != "relax":                    # after a RELAX e-stop the arm must stay limp
+            await S._hold_shielded(serial)           # hold wherever we ended up
         if abort_reason:
             log.warning("probe aborted: %s", abort_reason)
 

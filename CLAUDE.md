@@ -184,7 +184,7 @@ Pitch: *"Just tell it what to do. It figures it out with its eyes, then teaches 
 | P1 | Drift handling | `motion.py`, `poses.py`, `data/compensation.json` | calibration snapshot + raw positions in skills/poses, replay-from-raw when ranges changed, goal-vs-present tracking error, per-joint compensation, `check_drift` (home pose + landmark). See Learning protocol §6. `range_frozen` + warning in `get_robot_state` already done | partly done |
 | P1 | Vision | `vision.py` | `look(grid=True)` labelled A1–C3 grid on the desk cam; `find_objects(color)` HSV blobs → pixel + cell | todo |
 | P2 | Pick anywhere | `poses.py` | taught `above_<cell>` poses for 9 cells, bilinear blend → `pick(cell)` / `place(cell)` | todo |
-| P2 | E-stop | `estop.py` | separate process + own station connection: Space = hold, Esc = relax | todo |
+| P2 | E-stop | `estop.py`, `server.py` (`estop_latch`, `guard_motion`, `_run_motion`), `autopilot.py` | separate process + own station connection: Space = hold, X/Esc = relax, R R = release. Writes the servos directly + a latch in Station's `estop/state` queue; every move and motion tick checks it; no re-torque after RELAX. Tests: `tests/test_estop.py` | done, offline-tested + latch round trip on a real Station binary; **not yet tried on the arm** |
 | P3 | Demo agent/UI | `agent.py`, `ui/` | Claude API agent with the same tools + page with camera feeds, reasoning stream, STOP button | stretch |
 | P3 | SmolVLA | upstream `software/ai/smolvla_py` | train a policy on recorded demos for one fast skill; Claude stays the planner | stretch |
 
@@ -350,6 +350,7 @@ capped until the skill's status is `ok`;
 ---
 
 # Learned facts (Claude appends here as it learns; newest first)
+- 2026-11-21: Station `read_from_tail` offsets count from 0 = newest entry (real Station: 3 entries, offset 0 → [e2], offset 1 → [e1, e2]). `read_last(n)` used offset n, so n=1 returned the second-newest entry (one write behind: harmless for st3215/inference at ~400 Hz, wrong for rarely-written queues like estop/state or inference/mirroring). Fixed to offset n-1; verified by tests/test_estop.py against a real Station.
 - 2026-11-21: `st3215/inference` updates ~400 Hz per bus on hardware (~530 entries/s with 2 buses), not 10–20 Hz. Reading it 1:1 is ~1 ms/entry, so long history reads use the read `step` (server-side stride; verified: 75 s in 1.6 s with step 25).
 - 2026-11-21: On Linux, Station's camera unique_id is `vid:pid:bus:devnum` (decimal), and devnum changes on every replug, so each replug makes a new `/<station>/usbvideo/<md5>` queue; old queues stay, ending with `ET_DEVICE_RECORDING_END` (not `ET_DEVICE_DISCONNECTED`). Linux also needs a udev rule giving the user rw on UVC USB devices, or Station logs `Failed to open device ... -3` (libusb access denied).
 <!-- format: - YYYY-MM-DD: fact (evidence) -->

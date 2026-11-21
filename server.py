@@ -52,6 +52,7 @@ from mcp.server.fastmcp import FastMCP, Image  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import motion as M  # noqa: E402
 import learn as L  # noqa: E402
+import estop as E  # noqa: E402  (latch protocol only; the e-stop itself runs as its own process)
 
 from station_py import ErrQueueNotFound, new_station_client, send_commands  # noqa: E402
 from target.gen_python.protobuf.drivers.motors_mirroring import mirroring  # noqa: E402
@@ -130,7 +131,10 @@ async def read_last(queue_id: str, n: int = 1, timeout: float = READ_TIMEOUT_S, 
     sends only every step-th of them (ceil(n / step) entries)."""
     c = await client()
     limit = -(-n // step)
-    qr = c.read_from_tail(queue_id, offset=L.encode_shift(n), limit=limit, step=step, buf_size=limit + 1)
+    # Tail offsets count from 0 = the newest entry (verified on a real Station: offset 0 -> [e2],
+    # offset 1 -> [e1, e2]). So the last n entries start at offset n - 1; offset n with limit 1
+    # would return the second-newest entry, i.e. state one write behind (critical for estop/state).
+    qr = c.read_from_tail(queue_id, offset=L.encode_shift(max(n - 1, 0)), limit=limit, step=step, buf_size=limit + 1)
     out: list[memoryview] = []
     deadline = time.monotonic() + timeout
     while True:
@@ -289,8 +293,23 @@ def _is_mirrored_follower(ms: dict, serial: str) -> str | None:
     return None
 
 
+async def estop_latch() -> dict | None:
+    """The e-stop latch (estop.py) from Station's estop/state queue: a dict if latched, else None.
+    A missing queue means no e-stop was ever pressed. Read errors raise (callers fail closed)."""
+    try:
+        entries = await read_last(E.QUEUE, 1)
+    except QueueMissing:
+        return None
+    return E.decode_latch(entries[-1]) if entries else None
+
+
 async def guard_motion(serial: str) -> None:
-    """Refuse to command `serial` if it is a leader or is being mirrored. Fails closed."""
+    """Refuse to command `serial` if the e-stop is latched, or it is a leader or is being
+    mirrored. Fails closed. (hold goes through here too: after a RELAX e-stop, someone may be
+    holding the limp arm, so re-enabling torque must wait for a human release.)"""
+    latch = await estop_latch()
+    if latch:
+        raise RuntimeError(E.refusal(latch))
     ms = await mirroring_state()
     leader = _is_mirrored_follower(ms, serial)
     if leader is not None:
@@ -855,11 +874,17 @@ async def _run_motion(waypoints: list[dict], speed_scale: float, bus: str | None
         last_stamp, last_change = None, time.monotonic()
         gripper_hold = None
         latest = motors
+        estop_mode = None
         t0 = time.monotonic()
         try:
             while True:
                 if _abort.is_set():
                     reason = "stopped by stop_motion/relax/hold"
+                    break
+                latch = await estop_latch()
+                if latch:
+                    estop_mode = latch["mode"]
+                    reason = f"E-STOP {estop_mode.upper()} pressed by {latch.get('by') or '?'}"
                     break
                 t = time.monotonic() - t0
                 target = tl.sample(t)
@@ -900,7 +925,8 @@ async def _run_motion(waypoints: list[dict], speed_scale: float, bus: str | None
             await _hold_shielded(serial)
             raise
         if reason:
-            await _hold_shielded(serial)
+            if estop_mode != "relax":      # after a RELAX e-stop the arm must stay limp
+                await _hold_shielded(serial)
             log.warning("motion aborted: %s", reason)
         elapsed = time.monotonic() - t0
         return {
