@@ -115,6 +115,8 @@ async def fake_read_last(q, n=1, timeout=None, step=1):
         if not MIRROR["present"]:
             raise S.QueueMissing(q)
         return [memoryview(enc_mirroring())]
+    if q not in STATIC:                            # e.g. estop/state before anyone pressed the e-stop
+        raise S.QueueMissing(q)
     v = STATIC[q]
     return [memoryview(x) for x in v] if isinstance(v, list) else [memoryview(v)]  # list = several entries, oldest first
 

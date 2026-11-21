@@ -168,6 +168,33 @@ Code changes then need a restart of that process (not `/mcp`).
 
 ---
 
+## E-stop (run this before Claude drives)
+
+A separate program with its own Station connection. Run it **on a laptop next to the arm**, in its own terminal, and keep that window focused:
+
+```bash
+NORMA_CORE_REPO=$HOME/norma-core STATION_HOST=localhost FOLLOWER_BUS=<FOLLOWER_SERIAL> .venv/bin/python estop.py
+```
+
+| key | action |
+|---|---|
+| **Space** | **HOLD**: freeze the arm where it is (torque stays on) |
+| **X** / **Esc** | **RELAX**: torque off on every arm. It goes limp and **drops**, so support it |
+| **R R** | release the latch (R twice within 3 s) |
+| **Q** | quit (a latch stays set) |
+
+One-shot form: `estop.py hold | relax | release | status`.
+
+It stops the servos directly **and** sets a latch in Station (`estop/state` queue). The MCP server and
+autopilot check that latch before every move and on every motion tick, so a running `go_to` / `play_motion` /
+`run_skill` / `move_until` stops within one tick and every new move is refused until a human releases it.
+After a RELAX the server does **not** re-enable torque. The latch lives in Station, so it works when the e-stop
+and the MCP server run on different laptops. Limits: it needs Station to be reachable (the last resort is the
+12 V brick), and Station's own leader→follower mirroring doesn't read the latch (RELAX still works; HOLD gets
+overwritten by mirrored goals).
+
+---
+
 ## 4. First run: keep a hand near the arm
 
 Prompt Claude with something like:
