@@ -104,11 +104,11 @@ STATIC = {
         frames=frame.FramesPack(frames_data=[JPEG])).encode(),
 }
 
-async def fake_read_last(q, n=1, timeout=None):
+async def fake_read_last(q, n=1, timeout=None, step=1):
     if q == "st3215/inference":
         if HISTORY and n > 1:                      # recorded history for skill_from_history
             READS_N.append(n)
-            return [memoryview(x) for x in HISTORY[-n:]]
+            return [memoryview(x) for x in HISTORY[-n:][::step]]  # Station: every step-th of the last n
         return [memoryview(enc_st3215())]
     if q == S.MIRRORING_QUEUE:
         if not MIRROR["present"]:
@@ -458,12 +458,73 @@ async def learning_tests():
     check("calibration changed: still reaches the same RAW end pose", abs(MODEL["FOLLOW"][2]["pos"] - 2400) <= 25, MODEL["FOLLOW"][2])
     sk = json.load(open(os.path.join(os.environ["SKILLS_DIR"], "pick_a.json")))
     check("calibration changed: status needs_check", sk["status"] == "needs_check", sk["status"])
+    res = await S.report_skill_result(r["run_id"], True)
+    sk = json.load(open(os.path.join(os.environ["SKILLS_DIR"], "pick_a.json")))
+    check("success after re-calibration stores the re-based skill", res["rebased_to_new_calibration"]
+          and sk["calibration"]["ranges"]["2"] == [1100, 3000] and sk["last_good"]["calibration"]["ranges"]["2"] == [1000, 3000]
+          and sk["version"] == 2 and sk["status"] == "ok", str(res))
+    reset_follower(); MODEL["FOLLOW"][8].update(pos=2800, goal=2800)
+    r = await S.run_skill("pick_a")
+    check("re-based skill no longer needs the raw rebuild or the 0.5 cap", r["completed"] and not r["calibration_changed"], str(r))
+    check("re-based skill still reaches the same RAW end pose", abs(MODEL["FOLLOW"][2]["pos"] - 2400) <= 25, MODEL["FOLLOW"][2])
     await S.report_skill_result(r["run_id"], True)
+    for m in MODEL["FOLLOW"].values():
+        m["rmin"] = 2300                                 # new range no longer contains the recorded raw positions
+    await expect_error("raw positions outside today's range refuse the run (no clamping)", S.run_skill("pick_a"), "outside today's range")
     for m in MODEL["FOLLOW"].values():
         m["rmin"] = 1000
 
     runs = [json.loads(l) for l in open(os.environ["RUNS_FILE"], encoding="utf-8")]
-    check("every run logged in runs.jsonl", len(runs) == 5 and all("practice_after" in x for x in runs), len(runs))
+    check("every run logged in runs.jsonl", len(runs) == 6 and all("practice_after" in x for x in runs), len(runs))
+
+    # --- speed override can't skip the practice ladder ---
+    HISTORY[:] = make_demo()
+    await S.skill_from_history("pick_b")
+    HISTORY[:] = []
+    reset_follower(); MODEL["FOLLOW"][8].update(pos=2800, goal=2800)
+    r = await S.run_skill("pick_b", speed_scale=2.0)
+    check("new skill: speed_scale override capped to practice speed", r["speed_scale"] == 0.5 and "capped" in (r["speed_note"] or ""), str(r))
+    await S.report_skill_result(r["run_id"], True)
+    reset_follower(); MODEL["FOLLOW"][8].update(pos=2800, goal=2800)
+    r = await S.run_skill("pick_b", speed_scale=1.5)
+    check("after a watched success the override is allowed", r["speed_scale"] == 1.5 and r["speed_note"] is None, str(r))
+    await S.report_skill_result(r["run_id"], True)
+    await expect_error("speed_scale 0 rejected", S.run_skill("pick_b", speed_scale=0), "> 0")
+
+    # --- long, fast history (Station writes ~400 entries/s): strided read covers the request ---
+    HISTORY[:] = make_demo(hz=200, idle_before=40.0, move=3.0, idle_after=5.0)
+    r = await S.skill_from_history("long_a", seconds=45)
+    check("fast history read with a stride", r["history"]["read_step"] > 1 and r["history"]["covered_s"] >= 44.5
+          and "note" not in r["history"] and 3.0 <= r["duration_s"] <= 3.8, r["history"])
+    cap = S.HISTORY_MAX_ENTRIES
+    S.HISTORY_MAX_ENTRIES = 300
+    r = await S.skill_from_history("long_b", seconds=45)
+    check("entry cap raises the stride instead of cutting the recording short",
+          r["history"]["entries_read"] <= 300 and r["history"]["covered_s"] >= 44.5, r["history"])
+    S.HISTORY_MAX_ENTRIES = cap
+    r = await S.skill_from_history("long_c", seconds=120)
+    check("asking for more than Station has: warns with real coverage", "only goes back" in r["history"].get("note", ""), r["history"])
+    HISTORY[:] = []
+
+    # --- hand-written keyframe skills in the documented format ---
+    hand = {"name": "wave", "bus": "FOLLOW", "status": "ok",
+            "calibration": {"ranges": {str(j): [1000, 3000] for j in range(1, 9)}},
+            "keyframes": [{"joints": {"2": 0.6}, "duration_s": 0.3, "label": "up"},
+                          {"gripper": "close", "label": "grasp"},
+                          {"joints": {"2": 0.5}, "duration_s": 0.3}]}
+    with open(os.path.join(os.environ["SKILLS_DIR"], "wave.json"), "w") as f:
+        json.dump(hand, f)
+    await expect_error("gripper open/close needs GRIPPER_OPEN_NORM", S.run_skill("wave"), "GRIPPER_OPEN_NORM")
+    S.GRIPPER_OPEN_NORM = "1"
+    reset_follower()
+    r = await S.run_skill("wave")
+    check("{'gripper': 'close'} keyframe runs (close = 0.0 when open = 1)", r["completed"] and MODEL["FOLLOW"][8]["goal"] == 1000, str(r))
+    await S.report_skill_result(r["run_id"], True)
+    S.GRIPPER_OPEN_NORM = ""
+    hand["keyframes"].append({"skill": "pick_a"})
+    with open(os.path.join(os.environ["SKILLS_DIR"], "wave.json"), "w") as f:
+        json.dump(hand, f)
+    await expect_error("composite step gives a clear error", S.run_skill("wave"), "composite")
     SIM["on"] = False
 
 def reset_follower():

@@ -128,10 +128,12 @@ async def client():
 # ----------------------------------------------------------------------------
 # queue helpers
 
-async def read_last(queue_id: str, n: int = 1, timeout: float = READ_TIMEOUT_S) -> list[memoryview]:
-    """Return up to the last `n` entries of a queue, oldest first."""
+async def read_last(queue_id: str, n: int = 1, timeout: float = READ_TIMEOUT_S, step: int = 1) -> list[memoryview]:
+    """Return up to the last `n` entries of a queue, oldest first; with step > 1, Station
+    sends only every step-th of them (ceil(n / step) entries)."""
     c = await client()
-    qr = c.read_from_tail(queue_id, offset=L.encode_shift(n), limit=n, step=1, buf_size=n + 1)
+    limit = -(-n // step)
+    qr = c.read_from_tail(queue_id, offset=L.encode_shift(n), limit=limit, step=step, buf_size=limit + 1)
     out: list[memoryview] = []
     deadline = time.monotonic() + timeout
     while True:
@@ -1059,9 +1061,16 @@ async def stop_motion() -> str:
 
 SKILLS_DIR = Path(os.environ.get("SKILLS_DIR", str(Path(__file__).resolve().parent / "data" / "skills")))
 RUNS_FILE = Path(os.environ.get("RUNS_FILE", str(Path(__file__).resolve().parent / "data" / "runs.jsonl")))
+# Most entries one history read transfers. Station writes st3215/inference at ~400 entries/s
+# (measured on hardware, 2 buses), so longer spans are read with a server-side stride instead
+# of being cut short.
 HISTORY_MAX_ENTRIES = int(os.environ.get("HISTORY_MAX_ENTRIES", "20000"))
 HISTORY_TIMEOUT_S = float(os.environ.get("HISTORY_TIMEOUT_S", "30"))
 _SKILL_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+# Which end of the gripper range is open (normalized 1.0 or 0.0) for {"gripper": "open"/"close"}
+# skill steps. Unset until someone checks it on the arm with set_gripper + look.
+GRIPPER_OPEN_NORM = os.environ.get("GRIPPER_OPEN_NORM", "").strip()
+RAW_RANGE_SLACK = 20  # steps; same as Station's mirroring deadband
 _pending_runs: dict[str, dict] = {}
 
 
@@ -1093,25 +1102,51 @@ def _log_run(record: dict) -> None:
         f.write(json.dumps(record) + "\n")
 
 
-async def _read_history(serial_hint: str | None, seconds: float) -> tuple[str, list[tuple], dict]:
-    """Follower samples (t, norm, raw) from the last `seconds` of st3215/inference."""
-    probe = [parse_inference_state(r) for r in await read_last("st3215/inference", 50)]
+def _entry_stamp(state: dict[str, dict]) -> int:
+    return max((b["stamp_ns"] for b in state.values()), default=0)
+
+
+async def _read_history(serial_hint: str | None, seconds: float, hz: float = 20.0) -> tuple[str, list[tuple], dict]:
+    """Follower samples (t, norm, raw) from the last `seconds` of st3215/inference.
+
+    Reads with a server-side stride so a long span stays fast (one entry per ~1/(2*hz) s), and
+    grows the read until the stamps cover `seconds`. Fewer seconds come back only when Station's
+    history itself is shorter (reported as a warning); otherwise it raises.
+    """
+    probe = [parse_inference_state(r) for r in await read_last("st3215/inference", 200)]
     if not probe:
         raise RuntimeError("no data in st3215/inference")
     serial = pick_bus(probe[-1], serial_hint)
     rate = L.estimate_rate_hz([b[serial]["stamp_ns"] for b in probe if serial in b]) or 20.0
-    n = min(HISTORY_MAX_ENTRIES, int(seconds * rate * 1.3) + 10)
-    entries = await read_last("st3215/inference", n, timeout=HISTORY_TIMEOUT_S)
-    snaps, seen = [], set()
-    for raw in entries:
-        bus = parse_inference_state(raw).get(serial)
-        if bus is None or bus["stamp_ns"] in seen:
-            continue
-        seen.add(bus["stamp_ns"])
-        snaps.append(bus)
-    snaps.sort(key=lambda b: b["stamp_ns"])
-    if not snaps:
-        raise RuntimeError(f"no history for bus {serial}")
+    entry_rate = L.estimate_rate_hz([_entry_stamp(b) for b in probe]) or rate  # all buses share the queue
+    if len({_entry_stamp(b) for b in probe}) < len(probe):  # several entries per stamp: count entries, not stamps
+        span = (_entry_stamp(probe[-1]) - _entry_stamp(probe[0])) / 1e9
+        entry_rate = (len(probe) - 1) / span if span > 0 else entry_rate
+    step = max(1, int(entry_rate / (2 * hz)))
+    back = int(seconds * entry_rate * 1.1) + 50
+    covered, exhausted = 0.0, False
+    for _ in range(4):
+        step = max(step, -(-back // HISTORY_MAX_ENTRIES))
+        limit = -(-back // step)
+        entries = await read_last("st3215/inference", back, timeout=HISTORY_TIMEOUT_S, step=step)
+        snaps, seen = [], set()
+        for raw in entries:
+            bus = parse_inference_state(raw).get(serial)
+            if bus is None or bus["stamp_ns"] in seen:
+                continue
+            seen.add(bus["stamp_ns"])
+            snaps.append(bus)
+        snaps.sort(key=lambda b: b["stamp_ns"])
+        if not snaps:
+            raise RuntimeError(f"no history for bus {serial}")
+        covered = (snaps[-1]["stamp_ns"] - snaps[0]["stamp_ns"]) / 1e9
+        exhausted = len(entries) < limit  # reached the start of Station's history
+        if covered >= seconds - 0.5 or exhausted:
+            break
+        back = int(back * seconds / max(covered, 0.1) * 1.1) + 50
+    else:
+        raise RuntimeError(f"could only read {covered:.1f} s of the requested {seconds:g} s of history "
+                           f"(last read: {len(entries)} entries, step {step}); try fewer seconds")
     newest = snaps[-1]["stamp_ns"]
     snaps = [b for b in snaps if b["stamp_ns"] >= newest - int(seconds * 1e9)]
     uncal = sorted({m["joint"] for b in snaps for m in b["motors"].values() if m["position_norm"] is None})
@@ -1121,8 +1156,11 @@ async def _read_history(serial_hint: str | None, seconds: float) -> tuple[str, l
     samples = [((b["stamp_ns"] - base) / 1e9,
                 {j: m["position_norm"] for j, m in b["motors"].items()},
                 {j: m["position_raw"] for j, m in b["motors"].items()}) for b in snaps]
-    info = {"entries_read": len(entries), "rate_hz": round(rate, 1),
-            "covered_s": round((newest - base) / 1e9, 2), "requested_s": seconds}
+    covered_s = round((newest - base) / 1e9, 2)
+    info = {"entries_read": len(entries), "read_step": step, "rate_hz": round(rate, 1),
+            "covered_s": covered_s, "requested_s": seconds}
+    if covered_s < seconds - 0.5:
+        info["note"] = f"Station's history only goes back {covered_s:g} s"
     return serial, samples, {"info": info, "last": snaps[-1]}
 
 
@@ -1143,7 +1181,7 @@ async def skill_from_history(name: str, seconds: float = 60.0, description: str 
         if not overwrite:
             raise RuntimeError(f"skill {name!r} exists; pass overwrite=True to replace it (version goes up)")
         old = _load_skill(name)
-    serial, samples, meta = await _read_history(bus, seconds)
+    serial, samples, meta = await _read_history(bus, seconds, hz)
     moving = L.trim_idle(samples)
     if len(moving) < 2:
         raise RuntimeError(f"the follower didn't move in the last {seconds:g} s ({meta['info']}). "
@@ -1194,25 +1232,82 @@ async def list_skills() -> list[dict]:
     return out
 
 
-def _skill_waypoints(skill: dict, motors: dict) -> tuple[list[dict], dict[int, str]]:
-    """Waypoints for play_motion. If calibration changed since recording (>20 steps), rebuild the
-    normalized targets from the recorded RAW positions with today's ranges (CLAUDE.md §6 rule 2)."""
+def _raw_in_range(pos: int, rmin: int, rmax: int, slack: int = RAW_RANGE_SLACK) -> bool:
+    """Is a raw encoder position inside a (possibly wrapping) calibrated range, +- slack steps?"""
+    return (pos - (rmin - slack)) % MAX_STEPS <= range_size(rmin, rmax) + 2 * slack
+
+
+def _gripper_target(value, where: str) -> float:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if not 0.0 <= value <= 1.0:
+            raise RuntimeError(f"{where}: gripper value {value} must be within 0..1")
+        return float(value)
+    if value in ("open", "close"):
+        if GRIPPER_OPEN_NORM not in ("0", "1", "0.0", "1.0"):
+            raise RuntimeError(f"{where}: {{'gripper': {value!r}}} needs GRIPPER_OPEN_NORM (1 or 0): check with "
+                               "set_gripper + look which end of the range is open, or use a number 0..1")
+        open_norm = float(GRIPPER_OPEN_NORM)
+        return open_norm if value == "open" else 1.0 - open_norm
+    raise RuntimeError(f"{where}: gripper must be 'open', 'close' or a number 0..1, not {value!r}")
+
+
+def _skill_waypoints(skill: dict, motors: dict) -> tuple[list[dict], dict[int, str], dict | None]:
+    """Waypoints for play_motion, the joints whose calibration changed, and (if changed) the
+    rebased skill data to store after a successful run.
+
+    If calibration changed since recording (>20 steps), the normalized targets are rebuilt from
+    the recorded RAW positions with today's ranges (CLAUDE.md §6 rule 2). A raw position outside
+    today's range refuses the run instead of being clamped to the range edge.
+    """
     current = {j: (m["range_min"], m["range_max"]) for j, m in motors.items()}
     changed = L.ranges_changed((skill.get("calibration") or {}).get("ranges", {}), current)
+    outside: dict[str, int] = {}
+
+    def rebuild(p: dict, joints: dict) -> dict:
+        if not changed or "raw" not in p:
+            return joints
+        joints = dict(joints)
+        for k, raw in p["raw"].items():
+            j = int(k)
+            if j not in current or k not in joints:
+                continue
+            if not _raw_in_range(int(raw), *current[j]):
+                name = motors[j]["joint"]
+                outside[name] = outside.get(name, 0) + 1
+                continue
+            joints[k] = round(to_norm(int(raw), *current[j]), 4)
+        return joints
+
     if "motion" in skill:
-        wps = []
-        for p in skill["motion"]:
-            joints = dict(p["joints"])
-            if changed and "raw" in p:
-                for k, raw in p["raw"].items():
-                    j = int(k)
-                    if j in current:
-                        joints[k] = to_norm(int(raw), *current[j])
-            wps.append({"t": p["t"], "joints": joints})
-        return wps, changed
-    if "keyframes" in skill:  # hand-written skill: [{"joints": ..., "duration_s": ...}]
-        return [{"joints": k["joints"], "duration_s": k.get("duration_s", 1.0)} for k in skill["keyframes"]], changed
-    raise RuntimeError("skill has neither 'motion' nor 'keyframes'")
+        field, points = "motion", [dict(p, joints=rebuild(p, p["joints"])) for p in skill["motion"]]
+        wps = [{"t": p["t"], "joints": p["joints"]} for p in points]
+    elif "keyframes" in skill:  # hand-written skill: [{"joints"/"gripper": ..., "duration_s": ...}]
+        field, points, wps = "keyframes", [], []
+        composite = [i for i, k in enumerate(skill["keyframes"]) if "skill" in k]
+        if composite:
+            raise RuntimeError(f"keyframes {composite}: composite steps {{'skill': ...}} aren't supported by "
+                               "run_skill yet; run the sub-skills one after another")
+        for i, k in enumerate(skill["keyframes"]):
+            where = f"keyframe {i}" + (f" ({k['label']})" if k.get("label") else "")
+            joints = rebuild(k, k.get("joints") or {})
+            if "gripper" in k:
+                joints = {**joints, str(GRIPPER_ID): _gripper_target(k["gripper"], where)}
+            if not joints:
+                raise RuntimeError(f"{where} has neither 'joints' nor 'gripper'")
+            points.append(dict(k, joints=joints) if "joints" in k else k)
+            wps.append({"joints": joints, "duration_s": k.get("duration_s", 1.0)})
+    else:
+        raise RuntimeError("skill has neither 'motion' nor 'keyframes'")
+    if outside:
+        raise RuntimeError(f"calibration changed since this skill was recorded, and recorded positions are outside "
+                           f"today's range for {outside} (samples per joint). Re-record the skill, or re-calibrate "
+                           "so the range covers them. Not clamping: that would move to the range edge instead.")
+    rebased = None
+    if changed:
+        rebased = {"field": field, "points": points,
+                   "calibration": {"frozen": all(m["range_frozen"] for m in motors.values()),
+                                   "ranges": {str(j): [lo, hi] for j, (lo, hi) in current.items()}}}
+    return wps, changed, rebased
 
 
 @mcp.tool()
@@ -1228,9 +1323,19 @@ async def run_skill(name: str, speed_scale: float | None = None, bus: str | None
     skill = _load_skill(name)
     buses = await read_buses()
     serial = pick_bus(buses, bus or skill.get("bus"))
-    wps, changed = _skill_waypoints(skill, buses[serial]["motors"])
+    wps, changed, rebased = _skill_waypoints(skill, buses[serial]["motors"])
     practice = skill.get("practice") or {"level": 0, "streak": 0, "speed_scale": L.SPEED_LEVELS[0]}
-    speed = float(speed_scale) if speed_scale else float(practice.get("speed_scale", L.SPEED_LEVELS[0]))
+    practice_speed = float(practice.get("speed_scale", L.SPEED_LEVELS[0]))
+    speed, speed_note = practice_speed, None
+    if speed_scale is not None:
+        if speed_scale <= 0:
+            raise RuntimeError("speed_scale must be > 0")
+        speed = min(float(speed_scale), L.SPEED_LEVELS[-1])
+        if skill.get("status") != "ok" and speed > practice_speed:
+            # CLAUDE.md §5: no faster replay before a watched success at practice speed
+            speed_note = (f"speed_scale {speed_scale:g} capped to the practice speed {practice_speed:g}: "
+                          f"status is {skill.get('status')!r}, it must succeed at practice speed first")
+            speed = practice_speed
     if changed:
         speed = min(speed, L.SPEED_LEVELS[0])
         skill["status"] = "needs_check"
@@ -1242,10 +1347,11 @@ async def run_skill(name: str, speed_scale: float | None = None, bus: str | None
               "calibration_changed": {str(k): v for k, v in changed.items()} or None}
     if not report["completed"]:
         _finish_run(skill, record, success=False, note=f"engine aborted: {report['abort_reason']}")
-        return {**report, "run_id": run_id, "counted_as": "failure", "practice": skill["practice"]}
-    _pending_runs[run_id] = {"skill": skill, "record": record}
+        return {**report, "run_id": run_id, "speed_scale": speed, "speed_note": speed_note,
+                "counted_as": "failure", "practice": skill["practice"]}
+    _pending_runs[run_id] = {"skill": skill, "record": record, "rebased": rebased}
     _save_json(_skill_path(name), skill)  # persists a needs_check status
-    return {**report, "run_id": run_id, "speed_scale": speed,
+    return {**report, "run_id": run_id, "speed_scale": speed, "speed_note": speed_note,
             "calibration_changed": record["calibration_changed"],
             "next": "look at the result, then report_skill_result(run_id, success, note)"}
 
@@ -1272,9 +1378,24 @@ async def report_skill_result(run_id: str, success: bool, note: str = "") -> dic
     if pending is None:
         raise RuntimeError(f"unknown or already reported run_id {run_id!r}")
     skill = _load_skill(pending["skill"]["name"])  # re-read: the file may have been edited meanwhile
+    rebased = pending.get("rebased")
+    if success and rebased:
+        # The replay from raw positions worked with today's calibration: store it (CLAUDE.md §6 rule 2),
+        # so later runs don't rebuild again and the practice speed is no longer capped.
+        old_version = skill.get("version", 1)
+        skill["last_good"] = {"version": old_version, rebased["field"]: skill.get(rebased["field"]),
+                              "calibration": skill.get("calibration")}
+        skill[rebased["field"]] = rebased["points"]
+        skill["calibration"] = rebased["calibration"]
+        skill["version"] = old_version + 1
+        skill.setdefault("changelog", []).append({
+            "version": skill["version"],
+            "note": f"re-based on new calibration after a successful replay from raw (run {run_id}); "
+                    f"changed joints: {pending['record']['calibration_changed']}"})
     _finish_run(skill, pending["record"], success, note)
     return {"skill": skill["name"], "success": success, "status": skill["status"],
-            "practice": skill["practice"], "stats": skill["stats"]}
+            "practice": skill["practice"], "stats": skill["stats"],
+            "rebased_to_new_calibration": bool(success and rebased)}
 
 
 if __name__ == "__main__":

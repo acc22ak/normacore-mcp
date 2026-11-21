@@ -148,6 +148,8 @@ env = { NORMA_CORE_REPO = "/Users/you/norma-core", STATION_HOST = "localhost", F
 | `CURRENT_LIMIT` / `CURRENT_LIMITS` | `100` / — | fast-mode collision limit (same units as Station's current threshold); per motor e.g. `8:40,5:60` |
 | `TRACK_ERR_MAX` / `TRACK_ERR_TICKS` | `0.10` / `5` | abort when a joint lags its target this much for this many ticks |
 | `SKILLS_DIR` / `RUNS_FILE` | `data/skills` / `data/runs.jsonl` | where skills and the run log are saved |
+| `HISTORY_MAX_ENTRIES` | `20000` | most entries one `skill_from_history` read transfers; longer spans use a bigger server-side stride, never a shorter recording |
+| `GRIPPER_OPEN_NORM` | — | `1` or `0`: which end of the gripper range is open, for `{"gripper": "open"/"close"}` skill steps. Check with `set_gripper` + `look` first |
 | `LIMITS_FILE` | `data/limits.json` | optional soft limits per joint, e.g. `{"2": [0.1, 0.9]}` |
 | `FRAME_MAX_AGE_S` | `2.0` | `look` marks a camera frame older than this as STALE (e.g. camera unplugged or frozen). Assumes station and MCP share a clock |
 | `CAMERA_GONE_S` | `60` | a camera with no frame for this long, or that reported a disconnect, counts as unplugged and is hidden from `look("all")` / `list_cameras` (Station keeps a queue for every camera it ever saw; `list_cameras(include_gone=True)` shows them) |

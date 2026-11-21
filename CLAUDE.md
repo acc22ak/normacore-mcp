@@ -335,13 +335,18 @@ and design for correcting it.
 Recorded skills (from `skill_from_history`) store a dense `"motion": [{"t", "joints", "raw"}, ...]` that `run_skill`
 plays, plus `"practice": {"level", "streak", "speed_scale"}`; their `keyframes` are a readable summary
 (`start`/`pause`/`gripper turns`/`end`). Hand-written skills may instead give only `keyframes` with `duration_s`.
-Keyframes may list only the joints that change; the others keep their current value. Composite skills may
-use `{"skill": "<other skill>"}` steps. `raw` and `calibration` are there so a skill survives re-calibration (§6 rule 2);
+Keyframes may list only the joints that change; the others keep their current value. `{"gripper": "open"|"close"}`
+needs `GRIPPER_OPEN_NORM` (which end is open, unverified on our arm); `{"gripper": 0.3}` always works.
+Composite `{"skill": "<other skill>"}` steps are planned but `run_skill` refuses them for now. `raw` and `calibration` are there so a skill survives re-calibration (§6 rule 2): `run_skill` replays from
+`raw` (refusing positions outside today's range rather than clamping them), and after a reported success it stores the
+re-based positions + calibration (old ones in `last_good`). A `speed_scale` override above the practice speed is
+capped until the skill's status is `ok`;
 `verify` says what the camera should show after that keyframe (§6 rule 1).
 
 ---
 
 # Learned facts (Claude appends here as it learns; newest first)
+- 2026-11-21: `st3215/inference` updates ~400 Hz per bus on hardware (~530 entries/s with 2 buses), not 10–20 Hz. Reading it 1:1 is ~1 ms/entry, so long history reads use the read `step` (server-side stride; verified: 75 s in 1.6 s with step 25).
 - 2026-11-21: On Linux, Station's camera unique_id is `vid:pid:bus:devnum` (decimal), and devnum changes on every replug, so each replug makes a new `/<station>/usbvideo/<md5>` queue; old queues stay, ending with `ET_DEVICE_RECORDING_END` (not `ET_DEVICE_DISCONNECTED`). Linux also needs a udev rule giving the user rw on UVC USB devices, or Station logs `Failed to open device ... -3` (libusb access denied).
 <!-- format: - YYYY-MM-DD: fact (evidence) -->
 - 2026-11-21: Unfrozen calibration ranges keep widening during use (st3215 port_meta.rs:407-423); auto-calibration zeroes the servo Position Offset (calibrator.rs:423-424); mirroring deadband is 20 steps ≈1.8° (mirror.rs:190-195).
