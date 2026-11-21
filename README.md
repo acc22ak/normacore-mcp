@@ -65,21 +65,23 @@ The leader uses the follower manual up to the wrist, then swaps the gripper for:
 
 1. Download `station-macos-arm64.dmg` (or `.zip`) from
    https://github.com/norma-core/norma-core/releases (README points to v0.1.0-beta.10 or newer).
-2. Run: `./station --web --tcp` (the `.dmg` app runs it for you) and open **http://localhost:8889**.
+2. Run: `./station --web --tcp` and open **http://localhost:8889**.
+   The `.dmg` app starts its own station in the background on 8888/8889, so **use either the app or the CLI, never both**
+   (they'd clash on the ports). The app keeps `station.yaml` and `station_data/` in `~/Library/Application Support/`.
 3. You should see **2 ST3215 buses** (leader + follower) and **2 cameras**.
    **Write down the follower bus serial** (shown on the bus card).
-4. **Calibrate both arms**: bus card → calibration page → **Auto Calibrate** → **Save**.
-   Calibration sets each joint's `range_min/range_max`. The MCP refuses to move uncalibrated joints.
+4. **Calibrate both arms** (bus card → calibration page). Calibration sets each joint's `range_min/range_max`,
+   and the MCP refuses to move uncalibrated joints.
+   - **Follower (12 V)**: **Auto Calibrate** → **Save**.
+   - **Leader (5 V)**: Auto Calibrate is disabled below 7.0 V, so do it by hand: **Reset**, move **every joint through its
+     full range** by hand, then **Save**.
 5. Let Claude see more detail: in `station.yaml` set `usb-video: resize_target: 480`
-   (default 224 is tiny for an LLM; this also changes stored dataset frames). Restart station.
+   (default 224 is tiny for an LLM; this also changes stored dataset frames). With the `.dmg` app the file is in
+   `~/Library/Application Support/`. Restart station.
 
-Optional sanity test: leader → follower teleop:
-```bash
-cd norma-core/software/station/examples/st3215-remote-teleop-py
-uv run python main.py --leader-server localhost --leader-bus <LEADER_SERIAL> \
-                      --follower-server localhost --follower-bus <FOLLOWER_SERIAL>
-```
-**Stop teleop before Claude drives**, or both will fight over the follower arm.
+Sanity test: leader → follower teleop is **built into Station**. On the follower's bus card, pick the leader bus as
+the mirror source; the follower now copies the leader. Set it back to none to stop.
+**Stop mirroring before Claude drives.** Station doesn't stop two writers from fighting over the follower arm.
 
 ---
 

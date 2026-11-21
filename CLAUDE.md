@@ -23,6 +23,8 @@ path comes from `NORMA_CORE_REPO`, which must be the repo root because those imp
   - **Leader**: handle + trigger instead of a gripper, ST3215 **7.4 V** low-ratio servos (back-drivable), **5 V PSU**.
   - **Follower**: parallel gripper + gripper camera (UVC, e.g. Innomaker U20CAM), ST3215 **12 V / 30 kg** servos, **12 V PSU**.
   - Never put 12 V on the leader.
+  - The leader bus therefore reads ~5 V, and the web UI **disables Auto Calibrate below 7.0 V**. Calibrate the leader
+    **manually**: Reset → move every joint by hand through its full range → Save (freeze). The follower (12 V) can use Auto Calibrate.
 - 2× serial bus servo driver boards (Waveshare: jumper must be on **B** = USB) in printed enclosures.
 - Powered 7-port USB 3.0 hub (needed for cameras), USB-C data cables.
 - Desk/table camera: any UVC webcam, fixed position looking at the workspace and the gripper.
@@ -80,7 +82,28 @@ Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future ru
   status `0x40` (u8), present current `0x45` (u16). Send speed/accel **before** goal position.
 - Normalized position = `(raw - range_min) / (range_max - range_min)`, which is the same convention as normvla `position_norm`.
 - Web UI: motor-ID change page (set IDs one servo at a time) and **Auto Calibrate → Save** per bus
-  (disabled below 7.0 V bus voltage).
+  (disabled below 7.0 V bus voltage, so the leader is calibrated manually: Reset → move joints by hand → Save).
+- **Built-in teleop (motors-mirroring driver)**: Station mirrors leader → follower itself; no Python script needed.
+  - Start: `DriverCommand(type=STC_MOTOR_MIRRORING_COMMAND (=1), body=motors_mirroring.Command(type=CT_START_MIRROR,
+    source=MirroringBus(type=MBT_ST3215, unique_id=<leader serial>), targets=[MirroringBus(..., unique_id=<follower serial>)]))`.
+  - Stop: `motors_mirroring.Command(type=CT_STOP_MIRROR, source=MirroringBus(unique_id=<follower serial>))`. The web UI
+    sends the *follower* as `source` when stopping (`station-viewer/src/st3215/BusCard.tsx`).
+  - State: queue `inference/mirroring` (`motors_mirroring.RxEnvelope` → `InferenceState.mirroring[]` = active source→targets,
+    `modes[]` = per-bus LEADER/FOLLOWER); bus modes also in `motors_mirroring/modes`. `unique_id` = bus serial.
+  - Web UI: the follower's bus card has the mirror-source selector.
+- **No control arbitration yet**: if mirroring and our tools both write to the follower, last write wins (station-viewer
+  ADR 0009 describes a backend authority lease, but it is *not implemented*). We must check mirroring state ourselves.
+- **Current protection lives in the mirroring path**: `st3215.current-threshold` (default 100) and per-motor overrides are
+  applied by the mirroring driver (blocks the overloading direction and holds). Our direct ST3215 writes don't appear to
+  go through it (not fully traced), so `motion.py` must do its own current/stall abort. Gripper squeezes can hit the threshold.
+- **macOS app (.dmg)** runs its own station in the background on 8888/8889 and keeps `station.yaml` + `station_data/`
+  in `~/Library/Application Support/`. Don't start a second station alongside it (port clash); if you switch to a CLI/source
+  build, copy the calibrated config over.
+- The WebSocket on `:8889/api` carries the same normfs protocol as TCP 8888 (8-byte LE length + protobuf), so a browser page
+  can read queues directly. There is no REST API.
+- Go client bug: `software/station/shared/station/streams.go` `SendCommands` sends commands without the
+  `StationCommandsPack` wrapper, so they're silently dropped. Use the Python client.
+- Source of several of these facts: `notes/norma-station.html` (Victor's architecture notes, in this repo).
 - Upstream examples worth copying from: `software/station/examples/st3215-remote-teleop-py` (leader→follower
   mirroring, bus resolution, sync-write batching) and `software/ai/smolvla_py/scripts/run_policy.py` (normvla → policy → goal writes).
 
@@ -90,7 +113,9 @@ Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future ru
 3. Small steps: `nudge_joints` ≤ 0.05 when near objects/table; the server also clamps each call to `MAX_STEP_NORM` (0.15).
 4. Don't move uncalibrated joints or joints reporting `error_status != 0`.
 5. `relax` = torque off, and the arm falls. Use `hold` to freeze in place instead, unless something is jammed/overloaded.
-6. If leader→follower teleop is running, stop it first: two writers fight over the follower.
+6. If mirroring (teleop) targets the follower, don't move it: two writers fight over the arm and Station won't stop
+   them. Check `inference/mirroring`; stop mirroring with `teach_mode(off)` (or the web UI) before driving.
+   **Current `server.py` does not check this yet** (roadmap P0).
 
 ## Dev notes
 - Offline test without hardware: `python tests/offline_test.py . <norma-core path>` (monkeypatches queue reads/sends with simulated frames).
@@ -113,6 +138,7 @@ Pitch: *"Show it once by hand, then just tell it what to do. It watches, acts, c
 |---|---|---|---|---|
 | P0 | Station I/O | `station_io.py` | split connection/state/camera/command code out of `server.py` | todo |
 | P0 | Motion core | `motion.py` | `execute_trajectory(targets, duration)`: ~20 Hz interpolation, per-joint velocity cap, abort+`hold` on servo error / current spike / soft-limit breach (`data/limits.json`); `gripper_status()` grasp detection (gripper stalled early + current high = holding) | todo |
+| P0 | Teach mode + mirroring guard | `station_io.py`, `server.py` | `teach_mode(on/off)` starts/stops Station's built-in leader→follower mirroring; every motion tool refuses while the follower is a mirroring target | todo |
 | P0 | Poses | `poses.py`, `data/poses.json` | `save_pose`, `list_poses`, `go_to_pose` | todo |
 | P0 | Demonstration capture | `learn.py` | `record_demo` / `skill_from_history` (see Learning protocol) | todo |
 | P1 | Skills | `data/skills/*.json` | `list_skills`, `run_skill`, `edit_skill`; run log in `data/runs.jsonl` | todo |
@@ -124,7 +150,7 @@ Pitch: *"Show it once by hand, then just tell it what to do. It watches, acts, c
 
 Final tool surface: perception (`look`, `find_objects`, `gripper_status`, `get_robot_state`), motion (`go_to_pose`,
 `nudge_joints`, `grasp`, `release`), skills (`list_skills`, `run_skill`, `edit_skill`, `pick`, `place`), learning
-(`record_demo`, `skill_from_history`, `save_pose`), safety (`hold`, `relax`).
+(`teach_mode`, `record_demo`, `skill_from_history`, `save_pose`), safety (`hold`, `relax`).
 **If a tool you need for the protocol below doesn't exist yet, build it (roadmap order) rather than improvising with raw joint moves.**
 
 ---
@@ -133,8 +159,10 @@ Final tool surface: perception (`look`, `find_objects`, `gripper_status`, `get_r
 "Skill" below means a **robot skill** (a JSON file in `data/skills/`), not a Claude Code skill.
 
 ## 1. When a human shows you something → make a skill right away
-Teaching setup: upstream leader→follower teleop is running, so the follower copies the leader arm.
-Triggers: "watch this", "learn this", "save what I just did as X", "remember this".
+Teaching setup: call `teach_mode(on)` (Station's built-in leader→follower mirroring), so the follower copies the
+leader arm while the human demonstrates. Mirroring has its own current protection, so demos are safe to record.
+Triggers: "watch this", "learn this", "save what I just did as X", "remember this". If the human starts demonstrating
+and mirroring is off, offer to turn teach mode on.
 1. **Capture**: either `record_demo(start)` ... `record_demo(stop)`, or after the fact with
    `skill_from_history(seconds=N)`. Station keeps full history, so read the last N seconds of `st3215/inference`
    (`read_from_tail` with an entry count ≈ N × frame rate; measure the rate, it's ~10–20 Hz). **Use the follower bus
@@ -145,8 +173,8 @@ Triggers: "watch this", "learn this", "save what I just did as X", "remember thi
    have history too, so match frames by `monotonic_stamp_ns`. Describe in one sentence what the skill does and its
    preconditions (e.g. "cube must be in cell B2, gripper empty").
 4. **Save** `data/skills/<name>.json` immediately (format below), status `"new"`.
-5. **Confirm by replay**: tell the human you're about to replay. Run it at **50% speed** while they watch, look
-   before and after, and report the result. If it works, set status `"ok"`. Teleop must be stopped before replay.
+5. **Confirm by replay**: call `teach_mode(off)` first. Tell the human you're about to replay, then run it at
+   **50% speed** while they watch, look before and after, and report the result. If it works, set status `"ok"`.
 6. Commit the new skill to git (`learn: add skill <name>`).
 
 ## 2. Every time you run a skill → log and learn
@@ -207,4 +235,7 @@ use `{"skill": "<other skill>"}` steps.
 
 # Learned facts (Claude appends here as it learns; newest first)
 <!-- format: - YYYY-MM-DD: fact (evidence) -->
+- 2026-11-21: Station has built-in leader→follower mirroring, controllable via `STC_MOTOR_MIRRORING_COMMAND`; nothing arbitrates between it and our writes (motors-mirroring source, ADR 0009).
+- 2026-11-21: Leader bus is ~5 V, so web-UI Auto Calibrate is disabled (<7.0 V); calibrate the leader manually (St3215BusCalibrationPage.tsx).
+- 2026-11-21: The .dmg app keeps station.yaml in ~/Library/Application Support/ and owns ports 8888/8889 (notes/norma-station.html).
 - 2026-11-21: Station has no Windows build; run it on the MacBook (README).
