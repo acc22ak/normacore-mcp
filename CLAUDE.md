@@ -119,7 +119,9 @@ Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future ru
   mirroring, bus resolution, sync-write batching) and `software/ai/smolvla_py/scripts/run_policy.py` (normvla → policy → goal writes).
 
 ## Safety rules for agents driving the arm
-1. Always `look` + `get_robot_state` before moving. After every move, `look` again.
+1. Always `look` + `get_robot_state` before moving. After every move, `look` again. Each `look` label says how old
+   its frame is; a frame marked **STALE** (older than `FRAME_MAX_AGE_S`, or the camera reported a disconnect) is not
+   the current scene. Never plan or verify a move with it: stop and tell the human the camera needs checking.
 2. Only ever command the **follower** bus (`FOLLOWER_BUS`). Never write to the leader.
 3. Small steps: `nudge_joints` ≤ 0.05 when near objects/table; the server also clamps each call to `MAX_STEP_NORM` (0.15).
 4. Don't move uncalibrated joints or joints reporting `error_status != 0`.

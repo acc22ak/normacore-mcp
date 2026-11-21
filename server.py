@@ -55,6 +55,11 @@ MAX_STEP_NORM = float(os.environ.get("MAX_STEP_NORM", "0.15"))
 MOVE_SPEED = int(os.environ.get("MOVE_SPEED", "600"))
 LEADER_BUS = os.environ.get("LEADER_BUS", "").strip()
 TEACH_MAX_POSE_DIFF = float(os.environ.get("TEACH_MAX_POSE_DIFF", "0.2"))
+# A camera frame older than this is reported as STALE by `look`. Camera queues
+# persist across restarts, so an unplugged or frozen camera still has a "latest"
+# frame. Age = this machine's clock minus the frame's station wall-clock stamp,
+# so it assumes station and MCP server share a clock (same Mac, or NTP-synced).
+FRAME_MAX_AGE_S = float(os.environ.get("FRAME_MAX_AGE_S", "2.0"))
 READ_TIMEOUT_S = 5.0
 MIRRORING_QUEUE = "inference/mirroring"
 
@@ -321,21 +326,66 @@ async def camera_queues() -> list[str]:
                    if e.get_type() == drivers.QueueDataType.QDT_USB_VIDEO_FRAMES})
 
 
-async def latest_jpeg(queue_id: str) -> tuple[bytes, str] | None:
-    """Most recent JPEG frame from a usbvideo queue, plus a camera label."""
+def _frame_age_s(env, pack) -> float | None:
+    """Seconds since the frame was captured (station wall clock vs ours), or None if unknown."""
+    stamps = pack.get_stamps() if pack else []
+    stamp = stamps[-1] if stamps else env.get_stamp()
+    local_ns = stamp.get_local_stamp_ns() if stamp else 0
+    if not local_ns:
+        return None
+    return (time.time_ns() - local_ns) / 1e9
+
+
+def _fmt_age(s: float) -> str:
+    if s < 90:
+        return f"{s:.1f} s"
+    if s < 5400:
+        return f"{s / 60:.0f} min"
+    return f"{s / 3600:.1f} h"
+
+
+async def latest_jpeg(queue_id: str) -> dict | None:
+    """Most recent JPEG frame from a usbvideo queue.
+
+    Returns {"jpeg", "label", "age_s" (None if unknown), "disconnected"}, where
+    `disconnected` means the camera reported a disconnect after its last frame.
+    """
     label = queue_id
+    disconnected = False
+    newest = True
     for raw in reversed(await read_last(queue_id, 8)):
         env = usbvideo.RxEnvelopeReader(raw)
         cam = env.get_camera()
         if cam and cam.get_product():
             label = f"{cam.get_product()} ({queue_id})"
-        if env.get_type() != usbvideo.RxEnvelopeType.ET_FRAMES:
+        kind = env.get_type()
+        if newest and kind == usbvideo.RxEnvelopeType.ET_DEVICE_DISCONNECTED:
+            disconnected = True
+        newest = False
+        if kind != usbvideo.RxEnvelopeType.ET_FRAMES:
             continue
         pack = env.get_frames()
         frames = pack.get_frames_data() if pack else []
         if frames:
-            return bytes(frames[-1]), label
+            return {"jpeg": bytes(frames[-1]), "label": label,
+                    "age_s": _frame_age_s(env, pack), "disconnected": disconnected}
     return None
+
+
+def frame_status(got: dict) -> tuple[str, bool]:
+    """(text for the label, is_stale) for a frame from latest_jpeg."""
+    age = got["age_s"]
+    if got["disconnected"]:
+        when = f", last frame {_fmt_age(age)} old" if age is not None and age >= 0 else ""
+        return f"STALE: camera reported disconnected{when}", True
+    if age is None:
+        return "frame age unknown (no timestamp)", False
+    if age < -FRAME_MAX_AGE_S:
+        return (f"frame age unknown: its timestamp is {_fmt_age(-age)} in the future, "
+                "so the station and MCP server clocks disagree"), False
+    if age > FRAME_MAX_AGE_S:
+        return f"STALE: last frame is {_fmt_age(age)} old (limit {FRAME_MAX_AGE_S:g} s)", True
+    return f"frame {max(age, 0.0):.1f} s old", False
 
 
 # ----------------------------------------------------------------------------
@@ -346,29 +396,36 @@ async def look(camera: str = "all") -> list:
     """Grab the latest frame from the station cameras (gripper cam and desk cam).
 
     camera: "all" (default), or a queue id / index from `list_cameras`.
-    Returns one labeled JPEG per camera.
+    Returns one labeled JPEG per camera. Each label says how old the frame is;
+    a frame marked STALE is NOT the current scene, so never plan moves from it.
     """
     queues = await camera_queues()
     if not queues:
         return ["No cameras found. Check the USB hub and that usb-video is enabled in station.yaml."]
+    selected = list(enumerate(queues))  # keep each camera's index from list_cameras
     if camera != "all":
         if camera.isdigit():
             if int(camera) >= len(queues):
                 return [f"No camera {camera}: only {len(queues)} found ({queues}). Use an index 0..{len(queues) - 1} or 'all'."]
-            queues = [queues[int(camera)]]
+            selected = [selected[int(camera)]]
         else:
-            queues = [q for q in queues if camera in q]
-            if not queues:
+            selected = [(i, q) for i, q in selected if camera in q]
+            if not selected:
                 return [f"No camera matching {camera!r}. Use list_cameras."]
     out: list = []
-    for i, q in enumerate(queues):
+    for i, q in selected:
         got = await latest_jpeg(q)
         if got is None:
             out.append(f"camera {i}: {q} has no frames yet")
             continue
-        jpeg, label = got
-        out.append(f"camera {i}: {label}")
-        out.append(Image(data=jpeg, format="jpeg"))
+        status, stale = frame_status(got)
+        text = f"camera {i}: {got['label']} - {status}"
+        if stale:
+            text += (". This is NOT the current scene: don't plan or verify moves with it. "
+                     "Check the camera's USB connection and the station log.")
+            log.warning("look: camera %s %s", q, status)
+        out.append(text)
+        out.append(Image(data=got["jpeg"], format="jpeg"))
     return out
 
 

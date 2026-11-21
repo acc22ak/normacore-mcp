@@ -74,7 +74,18 @@ async def fake_read_last(q, n=1):
         if not MIRROR["present"]:
             raise S.QueueMissing(q)
         return [memoryview(enc_mirroring())]
-    return [memoryview(STATIC[q])]
+    v = STATIC[q]
+    return [memoryview(x) for x in v] if isinstance(v, list) else [memoryview(v)]  # list = several entries, oldest first
+
+def cam_frame(age_s, product="C270 HD WEBCAM"):
+    """usbvideo frames envelope whose frame was captured age_s seconds ago (station wall clock)."""
+    import time
+    stamp = frame.FrameStamp(local_stamp_ns=time.time_ns() - int(age_s * 1e9))
+    return usbvideo.RxEnvelope(type=usbvideo.RxEnvelopeType.ET_FRAMES, camera=usbvideo.Camera(product=product),
+                               stamp=stamp, frames=frame.FramesPack(frames_data=[JPEG], stamps=[stamp])).encode()
+
+def cam_event(kind):
+    return usbvideo.RxEnvelope(type=kind, camera=usbvideo.Camera(product="C270 HD WEBCAM")).encode()
 
 SENT = []
 async def fake_send(_c, cmds):
@@ -137,6 +148,41 @@ async def main():
     bad = await S.look("5")
     check("look bad index gives message, not IndexError", len(bad) == 1 and "only 1 found" in bad[0], str(bad))
     check("look unknown name gives message", "No camera matching" in (await S.look("nope"))[0])
+
+    # --- frame freshness: camera queues persist, so the "latest" frame can be old ---
+    saved = dict(STATIC)
+    STATIC["usbvideo/abc"] = cam_frame(0.2)
+    out = await S.look()
+    check("fresh frame: age shown, not stale", "0.2 s old" in out[0] and "STALE" not in out[0], out[0])
+    STATIC["usbvideo/abc"] = cam_frame(3 * 3600)
+    out = await S.look()
+    check("old frame flagged STALE with age", "STALE" in out[0] and "3.0 h old" in out[0] and "NOT the current scene" in out[0], out[0])
+    check("stale frame still returned for diagnosis", hasattr(out[1], "data"))
+    STATIC["usbvideo/abc"] = [cam_frame(0.5), cam_event(usbvideo.RxEnvelopeType.ET_DEVICE_DISCONNECTED)]
+    out = await S.look()
+    check("disconnect after last frame flagged STALE", "STALE: camera reported disconnected" in out[0], out[0])
+    STATIC["usbvideo/abc"] = [cam_event(usbvideo.RxEnvelopeType.ET_DEVICE_DISCONNECTED), cam_event(usbvideo.RxEnvelopeType.ET_DEVICE_CONNECTED), cam_frame(0.1)]
+    out = await S.look()
+    check("reconnected camera with fresh frame is fine", "STALE" not in out[0], out[0])
+    STATIC["usbvideo/abc"] = cam_frame(-60)
+    out = await S.look()
+    check("future timestamp reported as clock mismatch, not stale", "clocks disagree" in out[0] and "STALE" not in out[0], out[0])
+    STATIC["usbvideo/abc"] = cam_frame(-1.0)
+    out = await S.look()
+    check("small clock skew still reads as fresh", "0.0 s old" in out[0], out[0])
+
+    # --- labels keep the index from list_cameras ---
+    STATIC["usbvideo/def"] = cam_frame(0.1, product="GRIPPER CAM")
+    STATIC["inference-states"] = inference.InferenceRx(entries=[
+        inference.InferenceRx_Entry(queue=q, type=drivers.QueueDataType.QDT_USB_VIDEO_FRAMES)
+        for q in ("usbvideo/abc", "usbvideo/def")]).encode()
+    out = await S.look("1")
+    check("look('1') labels it camera 1", out[0].startswith("camera 1: GRIPPER CAM"), out[0])
+    out = await S.look("def")
+    check("look by name keeps real index", out[0].startswith("camera 1:"), out[0])
+    out = await S.look()
+    check("look all returns both cameras in order", out[0].startswith("camera 0:") and out[2].startswith("camera 1:"), str(out[::2]))
+    STATIC.clear(); STATIC.update(saved)
     st = await S.get_robot_state()
     check("state has mirroring info", st["mirroring"]["available"] and st["mirroring"]["links"] == [])
     check("follower picked from env", st["follower_bus"] == "FOLLOW")
