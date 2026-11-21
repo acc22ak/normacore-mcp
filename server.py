@@ -200,6 +200,9 @@ async def read_buses() -> dict[str, dict]:
                 "range_min": rmin,
                 "range_max": rmax,
                 "calibrated": calibrated,
+                # Until frozen (web UI "Save"), Station widens the range whenever the joint reaches a
+                # new position (st3215/src/port_meta.rs:349,407-423), so normalized values drift.
+                "range_frozen": bool(m.get_range_freezed()),
                 "torque_on": _u8(s, RAM_TORQUE_ENABLE) != 0,
                 "current": _u16(s, RAM_PRESENT_CURRENT),
                 "error_status": _u8(s, RAM_STATUS),
@@ -391,7 +394,13 @@ async def get_robot_state() -> dict:
         ms = await mirroring_state()
     except Exception as e:  # report, don't hide
         ms = f"unknown ({e})"
-    return {"follower_bus": follower, "mirroring": ms, "buses": buses}
+    warnings = []
+    for serial, b in buses.items():
+        loose = [m["joint"] for m in b["motors"].values() if m["calibrated"] and not m["range_frozen"]]
+        if loose:
+            warnings.append(f"bus {serial}: calibration not saved/frozen for {loose}; ranges will keep "
+                            "changing and shift normalized positions. Press Save on the calibration page.")
+    return {"follower_bus": follower, "mirroring": ms, "warnings": warnings, "buses": buses}
 
 
 @mcp.tool()

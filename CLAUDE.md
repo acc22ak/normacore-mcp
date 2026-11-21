@@ -158,6 +158,7 @@ Pitch: *"Show it once by hand, then just tell it what to do. It watches, acts, c
 | P0 | Poses | `poses.py`, `data/poses.json` | `save_pose`, `list_poses`, `go_to_pose` | todo |
 | P0 | Demonstration capture | `learn.py` | `record_demo` / `skill_from_history` (see Learning protocol) | todo |
 | P1 | Skills | `data/skills/*.json` | `list_skills`, `run_skill`, `edit_skill`; run log in `data/runs.jsonl` | todo |
+| P1 | Drift handling | `motion.py`, `poses.py`, `data/compensation.json` | calibration snapshot + raw positions in skills/poses, replay-from-raw when ranges changed, goal-vs-present tracking error, per-joint compensation, `check_drift` (home pose + landmark). See Learning protocol §6. `range_frozen` + warning in `get_robot_state` already done | partly done |
 | P1 | Vision | `vision.py` | `look(grid=True)` labelled A1–C3 grid on the desk cam; `find_objects(color)` HSV blobs → pixel + cell | todo |
 | P2 | Pick anywhere | `poses.py` | taught `above_<cell>` poses for 9 cells, bilinear blend → `pick(cell)` / `place(cell)` | todo |
 | P2 | E-stop | `estop.py` | separate process + own station connection: Space = hold, Esc = relax | todo |
@@ -221,6 +222,49 @@ Record what you learned in the **Learned facts** section below.
 - Never run a skill while teleop is running.
 - Every learning change is a separate git commit, so anything can be reverted.
 
+## 6. Calibration is never perfect: adapt to drift, don't trust the numbers blindly
+Joint numbers are estimates. **The camera is the ground truth.** Expect every replay to land a little off,
+and design for correcting it.
+
+**Verified sources of error** (norma-core source):
+- Calibration ranges are just the min/max positions seen while the joint was swept or moved by hand
+  (`st3215/src/calibrate.rs` `calculate_arc`). A hand-moved leader calibration is only as good as how far each joint was pushed.
+- **Until calibration is frozen (web UI Save), Station widens a joint's range every time it reaches a new position**
+  (`st3215/src/port_meta.rs:407-423`, skipped once frozen at `:349`). The same physical pose then gets a different
+  normalized value. `get_robot_state` reports `range_frozen` and a warning per bus: get unfrozen buses saved before teaching.
+- Re-calibrating changes `range_min/max`, so **every normalized value in saved skills shifts**. Raw encoder positions are
+  the stabler reference: auto-calibration writes the servo Position Offset (EEPROM 0x1F) to 0
+  (`auto_calibrate/calibrator.rs:423-424, 500`), so raw positions keep the same zero unless a servo horn is remounted or
+  the offset is changed.
+- In teach mode the follower ignores leader differences of ≤20 steps (`motors-mirroring/src/inference/mirror.rs:190-195`,
+  `deadband: 20` in `config.rs:48`). That's ≈1.8° per joint (360/4096×20), so **demos carry up to that error per joint**
+  before anything else.
+
+**Expected but unverified** (measure on the robot, then move to Learned facts): gear backlash, sag under gravity/load
+(shoulder/elbow), servo warm-up, the desk camera or table being bumped, objects not exactly where they were during the demo.
+
+**Rules:**
+1. **Closed loop at the moments that matter.** Approach, pre-grasp, grasp and place are verified with `look` (gripper cam
+   for fine alignment). If off, correct with small `nudge_joints` (≤0.02 per step), look again, and only then continue.
+   Never assume a replayed keyframe landed where the demo was.
+2. **Store calibration with every skill and pose.** Keep both `norm` and `raw` per joint, plus the bus's `range_min/max`
+   and `range_frozen` at save time (`calibration` block in the skill format). Before running, compare with the current
+   ranges. If any joint's range moved by more than 20 steps, replay from `raw` (if it's inside the current range),
+   set status `"needs_check"`, re-verify at 50% speed, then update `norm` and the stored calibration.
+3. **Measure tracking error.** After each segment, compare goal vs present position per joint. A consistent offset
+   (e.g. shoulder always 0.01 low under load) becomes a per-joint compensation in `data/compensation.json` (each
+   ≤0.03 norm, with evidence: run ids). It is learned data, not a calibration change.
+4. **Fold repeated corrections into the skill.** If the same visual correction was needed in ≥2 of the last 3 runs,
+   bake it into the keyframes as a new skill version (protocol §3), with the run ids as evidence in the changelog.
+5. **Drift check.** At session start and after any failure that looks systematic: `go_to_pose("home")`, `look`, and
+   compare against the stored reference image/description of home and a fixed table landmark (e.g. a tape mark).
+   If it moved, decide which drifted: the camera (landmark moved in image, arm didn't), the calibration (arm pose
+   differs, landmark same) or the table. Tell the human what you found.
+6. **Prefer forgiving skills**: approach from above, open the gripper wide, centre on the object with the gripper cam
+   before closing, slow final 2 cm.
+7. **Don't fix drift by loosening safety, and don't re-calibrate on your own.** Re-calibration sweeps the arm through
+   its full range and invalidates normalized skill data: propose it to the human, with evidence, and let them run it.
+
 ## Skill file format (`data/skills/<name>.json`)
 ```json
 {
@@ -229,14 +273,18 @@ Record what you learned in the **Learned facts** section below.
   "preconditions": ["cube visible in B2", "gripper empty"],
   "effects": ["cube in gripper"],
   "bus": "<follower serial>",
+  "calibration": {"captured_at": "<ts>", "frozen": true,
+                  "ranges": {"1": [1012, 3050], "2": [3900, 200], "...": []}},
   "keyframes": [
-    {"joints": {"1": 0.50, "2": 0.31, "3": 0.50, "4": 0.72, "5": 0.50, "6": 0.40, "7": 0.50, "8": 0.90}, "duration_s": 1.5, "label": "above B2"},
+    {"joints": {"1": 0.50, "2": 0.31, "3": 0.50, "4": 0.72, "5": 0.50, "6": 0.40, "7": 0.50, "8": 0.90},
+     "raw":    {"1": 2031, "2": 23, "3": 2048, "4": 2400, "5": 2050, "6": 1700, "7": 2048, "8": 2900},
+     "duration_s": 1.5, "label": "above B2", "verify": "gripper cam: cube centred below jaws"},
     {"joints": {"2": 0.36, "4": 0.66}, "duration_s": 1.0, "label": "down"},
     {"gripper": "close", "label": "grasp"},
     {"joints": {"2": 0.31, "4": 0.72}, "duration_s": 1.0, "label": "lift"}
   ],
   "speed_scale": 1.0,
-  "status": "new | ok | flaky | broken",
+  "status": "new | ok | flaky | broken | needs_check",
   "version": 1,
   "last_good": null,
   "stats": {"runs": 0, "success": 0},
@@ -245,12 +293,14 @@ Record what you learned in the **Learned facts** section below.
 }
 ```
 Keyframes may list only the joints that change; the others keep their current value. Composite skills may
-use `{"skill": "<other skill>"}` steps.
+use `{"skill": "<other skill>"}` steps. `raw` and `calibration` are there so a skill survives re-calibration (§6 rule 2);
+`verify` says what the camera should show after that keyframe (§6 rule 1).
 
 ---
 
 # Learned facts (Claude appends here as it learns; newest first)
 <!-- format: - YYYY-MM-DD: fact (evidence) -->
+- 2026-11-21: Unfrozen calibration ranges keep widening during use (st3215 port_meta.rs:407-423); auto-calibration zeroes the servo Position Offset (calibrator.rs:423-424); mirroring deadband is 20 steps ≈1.8° (mirror.rs:190-195).
 - 2026-11-21: Station has built-in leader→follower mirroring, controllable via `STC_MOTOR_MIRRORING_COMMAND`; nothing arbitrates between it and our writes (motors-mirroring source, ADR 0009).
 - 2026-11-21: Leader bus is ~5 V, so web-UI Auto Calibrate is disabled (<7.0 V); calibrate the leader manually (St3215BusCalibrationPage.tsx).
 - 2026-11-21: The .dmg app keeps station.yaml in ~/Library/Application Support/ and owns ports 8888/8889 (notes/norma-station.html).

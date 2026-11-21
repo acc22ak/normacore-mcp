@@ -25,8 +25,8 @@ def check(name, cond, detail=""):
 
 # ---- simulated station model ------------------------------------------------
 MODEL = {
-    "FOLLOW": {i: {"pos": 2048 + 10 * i, "torque": 0, "rmin": 1000, "rmax": 3000} for i in range(1, 9)},
-    "LEAD":   {i: {"pos": 2048 + 10 * i, "torque": 0, "rmin": 1000, "rmax": 3000} for i in range(1, 9)},
+    "FOLLOW": {i: {"pos": 2048 + 10 * i, "torque": 0, "rmin": 1000, "rmax": 3000, "frozen": True} for i in range(1, 9)},
+    "LEAD":   {i: {"pos": 2048 + 10 * i, "torque": 0, "rmin": 1000, "rmax": 3000, "frozen": i != 3} for i in range(1, 9)},
 }
 MIRROR = {"present": True, "links": {}, "modes": {}}  # links: follower -> leader
 
@@ -39,7 +39,7 @@ def enc_st3215():
     buses = []
     for serial, motors in MODEL.items():
         ms = [st3215.InferenceState_MotorState(id=i, state=motor_state(m["pos"], m["torque"]),
-                                               range_min=m["rmin"], range_max=m["rmax"]) for i, m in motors.items()]
+                                               range_min=m["rmin"], range_max=m["rmax"], range_freezed=m["frozen"]) for i, m in motors.items()]
         buses.append(st3215.InferenceState_BusState(bus=st3215.ST3215Bus(serial_number=serial), motors=ms))
     return st3215.InferenceState(buses=buses).encode()
 
@@ -140,6 +140,8 @@ async def main():
     st = await S.get_robot_state()
     check("state has mirroring info", st["mirroring"]["available"] and st["mirroring"]["links"] == [])
     check("follower picked from env", st["follower_bus"] == "FOLLOW")
+    check("warns about unfrozen calibration", len(st["warnings"]) == 1 and "LEAD" in st["warnings"][0] and "upper_arm_roll" in st["warnings"][0], str(st["warnings"]))
+    check("range_frozen exposed", st["buses"]["FOLLOW"]["motors"][1]["range_frozen"] is True)
 
     # --- motion with no mirroring ---
     r = await S.move_joints({"1": 0.9, "elbow": 0.5})

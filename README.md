@@ -76,6 +76,8 @@ The leader uses the follower manual up to the wrist, then swaps the gripper for:
    - **Follower (12 V)**: **Auto Calibrate** → **Save**.
    - **Leader (5 V)**: Auto Calibrate is disabled below 7.0 V, so do it by hand: **Reset**, move **every joint through its
      full range** by hand, then **Save**.
+   - **Always press Save.** It freezes the ranges. Until then Station keeps widening them as joints move, which shifts
+     every normalized position (`get_robot_state` warns about unsaved buses).
 5. Let Claude see more detail: in `station.yaml` set `usb-video: resize_target: 480`
    (default 224 is tiny for an LLM; this also changes stored dataset frames). With the `.dmg` app the file is in
    `~/Library/Application Support/`. Restart station.
