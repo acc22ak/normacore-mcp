@@ -16,9 +16,12 @@ Env vars:
                     the station has exactly two buses, the non-follower one is used.
   TEACH_MAX_POSE_DIFF  teach_mode(on) refuses (unless force=True) when any joint of the
                     leader and follower differs by more than this (normalized). Default 0.2.
-  CAMERAS           optional default camera roles, e.g. "desk=usbvideo/9c1e,gripper=3f2a"
-                    (queue id or unique hash prefix). Roles saved with set_camera_role in
-                    data/cameras.json (CAMERAS_FILE) take precedence.
+  CAMERAS           optional default camera roles, e.g. "desk=32e6:9228:202604081837,gripper=3f2a"
+                    (camera_id from list_cameras, queue id or queue hash prefix). Roles saved
+                    with set_camera_role in data/cameras.json (CAMERAS_FILE) take precedence.
+  CAMERA_GONE_S     a camera whose newest frame is older than this (s), or that reported a
+                    disconnect, counts as unplugged and is hidden from look("all") and
+                    list_cameras. Default 60. Cameras between FRAME_MAX_AGE_S and this show as STALE.
 """
 
 from __future__ import annotations
@@ -69,6 +72,9 @@ TEACH_MAX_POSE_DIFF = float(os.environ.get("TEACH_MAX_POSE_DIFF", "0.2"))
 # frame. Age = this machine's clock minus the frame's station wall-clock stamp,
 # so it assumes station and MCP server share a clock (same Mac, or NTP-synced).
 FRAME_MAX_AGE_S = float(os.environ.get("FRAME_MAX_AGE_S", "2.0"))
+# A camera whose newest frame is older than this (or that reported a disconnect) counts as
+# unplugged: hidden from look("all") / list_cameras, but still reachable by id for diagnosis.
+CAMERA_GONE_S = float(os.environ.get("CAMERA_GONE_S", "60"))
 READ_TIMEOUT_S = 5.0
 MIRRORING_QUEUE = "inference/mirroring"
 
@@ -328,7 +334,10 @@ def _sync_write(bus: str, address: int, writes: list[tuple[int, bytes]]):
 
 
 async def camera_queues() -> list[str]:
-    """Discover camera queues from the station's inference-states index."""
+    """Every camera queue Station has ever created (from the inference-states index).
+
+    Station never deletes these: each replug of a camera can add a new one (see `cameras`).
+    """
     entries = await read_last("inference-states", 1)
     if not entries:
         return []
@@ -338,17 +347,89 @@ async def camera_queues() -> list[str]:
 
 
 # ----------------------------------------------------------------------------
-# camera roles: Station only knows usbvideo/<md5 of the camera's unique_id>
-# (usbvideo/src/pipeline.rs generate_queue_id), not "desk" or "gripper".
-# On macOS unique_id is AVFoundation's device.uniqueID (osx/avflib/avflib/avf.m:418).
-# UNVERIFIED: whether that survives moving a camera to another USB port. If a saved role
-# stops matching a connected camera, look/list_cameras report it as a role problem.
+# camera identity: Station names queues usbvideo/<md5 of the camera's unique_id>
+# (usbvideo/src/pipeline.rs generate_queue_id), and real queue ids carry a station
+# prefix: "/<station id>/usbvideo/<md5>". On Linux unique_id is
+# "<vid>:<pid>:<usb bus>:<usb device number>" (decimal), and the device number changes
+# on every replug (seen on hardware: 13030:37416:1:25 -> :28 -> :35), so the same
+# camera gets a new queue each time. On macOS it is AVFoundation's device.uniqueID
+# (osx/avflib/avflib/avf.m:418). Roles are therefore saved against camera_id
+# (USB vendor:product:serial), which survives replugs and port changes.
 CAMERAS_FILE = Path(os.environ.get("CAMERAS_FILE", str(Path(__file__).resolve().parent / "data" / "cameras.json")))
 _ROLE_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+_CAM_GONE_EVENTS = (usbvideo.RxEnvelopeType.ET_DEVICE_DISCONNECTED,
+                    # what Station writes last when a camera is unplugged ("Capture session ... ended")
+                    usbvideo.RxEnvelopeType.ET_DEVICE_RECORDING_END)
+_CAM_STARTING_EVENTS = (usbvideo.RxEnvelopeType.ET_DEVICE_CONNECTED,
+                        usbvideo.RxEnvelopeType.ET_DEVICE_RECORDING_START)
+
+
+def camera_id(cam, queue_id: str) -> str:
+    """Stable id of the physical camera: "vid:pid:serial" (hex ids), or "vid:pid:product"
+    when it has no serial (two identical serial-less cameras then share an id). Falls back
+    to the queue id when Station reported no USB ids."""
+    if cam is not None:
+        vid, pid = int(cam.get_vendor_id() or 0), int(cam.get_product_id() or 0)
+        if vid or pid:
+            tail = (cam.get_serial_number() or "").strip() or (cam.get_product() or "").strip()
+            return f"{vid:04x}:{pid:04x}:{tail}"
+    return queue_id
+
+
+def _queue_hash(queue_id: str) -> str:
+    return queue_id.rsplit("usbvideo/", 1)[-1]
+
+
+async def camera_snapshot(queue_id: str) -> dict:
+    """Identity, newest frame and liveness of one camera queue.
+
+    Returns {"queue", "product", "camera_id", "label", "jpeg" (None if no frame),
+    "age_s" (None if unknown), "disconnected", "gone"}. `disconnected`: the newest entry
+    is a disconnect / capture-end event. `gone`: the camera is not streaming any more
+    (disconnected, no frame left in the queue, or newest frame older than CAMERA_GONE_S).
+    """
+    try:
+        entries = await read_last(queue_id, 8)
+    except RuntimeError:
+        entries = []
+    cam = None
+    jpeg = age = None
+    newest_kind = None
+    for raw in reversed(entries):
+        env = usbvideo.RxEnvelopeReader(raw)
+        kind = env.get_type()
+        if newest_kind is None:
+            newest_kind = kind
+        c = env.get_camera()
+        if cam is None and c is not None and (c.get_product() or c.get_vendor_id()):
+            cam = c
+        if jpeg is None and kind == usbvideo.RxEnvelopeType.ET_FRAMES:
+            pack = env.get_frames()
+            frames = pack.get_frames_data() if pack else []
+            if frames:
+                jpeg, age = bytes(frames[-1]), _frame_age_s(env, pack)
+        if cam is not None and jpeg is not None:
+            break
+    product = ((cam.get_product() if cam else "") or "").strip() or None
+    disconnected = newest_kind in _CAM_GONE_EVENTS
+    if jpeg is None:
+        gone = newest_kind not in _CAM_STARTING_EVENTS  # a camera that is just starting has no frame yet
+    else:
+        gone = disconnected or (age is not None and age > CAMERA_GONE_S)
+    return {"queue": queue_id, "product": product, "camera_id": camera_id(cam, queue_id),
+            "label": f"{product} ({queue_id})" if product else queue_id,
+            "jpeg": jpeg, "age_s": age, "disconnected": disconnected, "gone": gone}
+
+
+async def cameras() -> tuple[list[dict], list[dict]]:
+    """(connected cameras in queue order, gone cameras). Indexes in list_cameras/look are
+    positions in the connected list, so they can shift when cameras come and go: use roles."""
+    snaps = await asyncio.gather(*(camera_snapshot(q) for q in await camera_queues()))
+    return [s for s in snaps if not s["gone"]], [s for s in snaps if s["gone"]]
 
 
 def _env_roles() -> dict[str, str]:
-    """CAMERAS="desk=usbvideo/9c1e...,gripper=3f2a" (queue id or unique hash prefix)."""
+    """CAMERAS="desk=32e6:9228:2026...,gripper=3f2a" (camera_id, queue id or queue hash prefix)."""
     out = {}
     for part in os.environ.get("CAMERAS", "").split(","):
         if "=" in part:
@@ -369,30 +450,40 @@ def _file_roles() -> dict[str, str]:
     return {str(k).lower(): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
 
 
-def _match_queue(ref: str, queues: list[str]) -> str | None:
-    """A queue id, or a hash prefix (with or without 'usbvideo/'), matching exactly one queue."""
+def _match_cameras(ref: str, cams: list[dict]) -> list[dict]:
+    """Cameras matching a camera_id, a full queue id, or a queue hash prefix
+    (with or without "usbvideo/" and the station prefix)."""
     ref = ref.strip()
-    if ref in queues:
-        return ref
-    prefix = ref if ref.startswith("usbvideo/") else f"usbvideo/{ref}"
-    hits = [q for q in queues if q.startswith(prefix)]
-    return hits[0] if len(hits) == 1 else None
+    hits = [c for c in cams if ref in (c["camera_id"], c["queue"])]
+    if hits:
+        return hits
+    h = _queue_hash(ref)
+    return [c for c in cams if _queue_hash(c["queue"]).startswith(h)] if h else []
 
 
-def camera_roles(queues: list[str]) -> tuple[dict[str, str], list[str]]:
-    """(role -> queue for roles that resolve, problems). data/cameras.json wins over CAMERAS env."""
+def _describe(cam: dict) -> str:
+    return f"{cam['product'] or 'camera'} [{cam['camera_id']}]"
+
+
+def camera_roles(cams: list[dict], gone: list[dict] = ()) -> tuple[dict[str, dict], list[str]]:
+    """(role -> connected camera for roles that resolve, problems). data/cameras.json wins over CAMERAS env."""
     merged = {**_env_roles(), **_file_roles()}
     roles, problems = {}, []
     for role, ref in merged.items():
-        q = _match_queue(ref, queues)
-        if q is None:
-            problems.append(f"role {role!r} -> {ref!r} matches no single connected camera")
+        hits = _match_cameras(ref, cams)
+        if len(hits) == 1:
+            roles[role] = hits[0]
+        elif hits:
+            problems.append(f"role {role!r} -> {ref!r} matches several connected cameras: "
+                            f"{[c['queue'] for c in hits]}")
         else:
-            roles[role] = q
-    by_queue: dict[str, list[str]] = {}
-    for role, q in roles.items():
-        by_queue.setdefault(q, []).append(role)
-    for q, rs in by_queue.items():
+            seen = _match_cameras(ref, list(gone))
+            what = f" ({_describe(seen[-1])} is unplugged)" if seen else ""
+            problems.append(f"role {role!r} -> {ref!r} matches no connected camera{what}")
+    by_cam: dict[str, list[str]] = {}
+    for role, c in roles.items():
+        by_cam.setdefault(c["queue"], []).append(role)
+    for q, rs in by_cam.items():
         if len(rs) > 1:
             problems.append(f"camera {q} has several roles {sorted(rs)} (CAMERAS env vs data/cameras.json?)")
     return roles, problems
@@ -416,36 +507,8 @@ def _fmt_age(s: float) -> str:
     return f"{s / 3600:.1f} h"
 
 
-async def latest_jpeg(queue_id: str) -> dict | None:
-    """Most recent JPEG frame from a usbvideo queue.
-
-    Returns {"jpeg", "label", "age_s" (None if unknown), "disconnected"}, where
-    `disconnected` means the camera reported a disconnect after its last frame.
-    """
-    label = queue_id
-    disconnected = False
-    newest = True
-    for raw in reversed(await read_last(queue_id, 8)):
-        env = usbvideo.RxEnvelopeReader(raw)
-        cam = env.get_camera()
-        if cam and cam.get_product():
-            label = f"{cam.get_product()} ({queue_id})"
-        kind = env.get_type()
-        if newest and kind == usbvideo.RxEnvelopeType.ET_DEVICE_DISCONNECTED:
-            disconnected = True
-        newest = False
-        if kind != usbvideo.RxEnvelopeType.ET_FRAMES:
-            continue
-        pack = env.get_frames()
-        frames = pack.get_frames_data() if pack else []
-        if frames:
-            return {"jpeg": bytes(frames[-1]), "label": label,
-                    "age_s": _frame_age_s(env, pack), "disconnected": disconnected}
-    return None
-
-
 def frame_status(got: dict) -> tuple[str, bool]:
-    """(text for the label, is_stale) for a frame from latest_jpeg."""
+    """(text for the label, is_stale) for a camera_snapshot that has a frame."""
     age = got["age_s"]
     if got["disconnected"]:
         when = f", last frame {_fmt_age(age)} old" if age is not None and age >= 0 else ""
@@ -467,71 +530,92 @@ def frame_status(got: dict) -> tuple[str, bool]:
 async def look(camera: str = "all") -> list:
     """Grab the latest frame from the station cameras (gripper cam and desk cam).
 
-    camera: "all" (default), a role ("desk", "gripper", set with `set_camera_role`),
-    or a queue id / hash prefix / index from `list_cameras`.
+    camera: "all" (default: every connected camera), a role ("desk", "gripper", set with
+    `set_camera_role`), or an index / camera_id / queue id / hash prefix from `list_cameras`.
+    Unplugged cameras are skipped by "all" and indexes, but can still be fetched by
+    camera_id or queue id for diagnosis.
     Returns one labeled JPEG per camera. Each label says how old the frame is;
     a frame marked STALE is NOT the current scene, so never plan moves from it.
     """
-    queues = await camera_queues()
-    if not queues:
-        return ["No cameras found. Check the USB hub and that usb-video is enabled in station.yaml."]
-    roles, problems = camera_roles(queues)
-    role_of = {q: r for r, q in roles.items()}
-    selected = list(enumerate(queues))  # keep each camera's index from list_cameras
+    cams, gone = await cameras()
+    roles, problems = camera_roles(cams, gone)
+    role_of = {c["queue"]: r for r, c in roles.items()}
+    selected: list[tuple[int | None, dict]] = list(enumerate(cams))  # keep each camera's index from list_cameras
     if camera != "all":
-        if camera.lower() in roles:
-            selected = [(i, q) for i, q in selected if q == roles[camera.lower()]]
+        key = camera.strip().lower()
+        configured = {**_env_roles(), **_file_roles()}
+        if key in roles:
+            selected = [(i, c) for i, c in selected if c is roles[key]]
+        elif key in configured:
+            return [f"Camera role {key!r} can't be shown: "
+                    + "; ".join(p for p in problems if p.startswith(f"role {key!r}"))
+                    + ". Check the camera's USB connection, or re-assign the role with set_camera_role."]
         elif camera.isdigit():
-            if int(camera) >= len(queues):
-                return [f"No camera {camera}: only {len(queues)} found ({queues}). Use an index 0..{len(queues) - 1} or 'all'."]
+            if int(camera) >= len(cams):
+                return [f"No camera {camera}: only {len(cams)} connected ({[c['queue'] for c in cams]}). "
+                        f"Use an index 0..{len(cams) - 1} or 'all'."]
             selected = [selected[int(camera)]]
         else:
-            selected = [(i, q) for i, q in selected if camera in q]
+            selected = [(i, c) for i, c in selected if camera in c["queue"] or camera in c["camera_id"]]
+            if not selected:
+                selected = [(None, c) for c in gone if camera in c["queue"] or camera in c["camera_id"]][-1:]
             if not selected:
                 known = f" Known roles: {sorted(roles)}." if roles else " No camera roles set yet (set_camera_role)."
                 return [f"No camera matching {camera!r}.{known} Use list_cameras."]
+    if not selected:
+        hidden = f" ({len(gone)} unplugged camera(s) hidden, see list_cameras(include_gone=True))" if gone else ""
+        return [f"No cameras connected{hidden}. Check the USB hub and that usb-video is enabled in station.yaml."]
     out: list = [f"camera role problems: {problems}"] if problems else []
-    for i, q in selected:
-        tag = f"camera {i} [{role_of[q]}]" if q in role_of else f"camera {i}"
-        got = await latest_jpeg(q)
-        if got is None:
-            out.append(f"{tag}: {q} has no frames yet")
+    for i, c in selected:
+        tag = "unplugged camera" if i is None else f"camera {i}"
+        if c["queue"] in role_of:
+            tag += f" [{role_of[c['queue']]}]"
+        if c["jpeg"] is None:
+            out.append(f"{tag}: {c['label']} has no frames yet")
             continue
-        status, stale = frame_status(got)
-        text = f"{tag}: {got['label']} - {status}"
+        status, stale = frame_status(c)
+        text = f"{tag}: {c['label']} - {status}"
         if stale:
             text += (". This is NOT the current scene: don't plan or verify moves with it. "
                      "Check the camera's USB connection and the station log.")
-            log.warning("look: camera %s %s", q, status)
+            log.warning("look: camera %s %s", c["queue"], status)
         out.append(text)
-        out.append(Image(data=got["jpeg"], format="jpeg"))
+        out.append(Image(data=c["jpeg"], format="jpeg"))
     return out
 
 
 @mcp.tool()
-async def list_cameras() -> dict:
-    """List cameras: index, queue id, product name and role (if set), plus role problems."""
-    queues = await camera_queues()
-    roles, problems = camera_roles(queues)
-    role_of = {q: r for r, q in roles.items()}
-    cams = []
-    for i, q in enumerate(queues):
-        product = None
-        for raw in reversed(await read_last(q, 1)):
-            cam = usbvideo.RxEnvelopeReader(raw).get_camera()
-            product = (cam.get_product() if cam else "") or None
-        cams.append({"index": i, "queue": q, "product": product, "role": role_of.get(q)})
-    return {"cameras": cams, "role_problems": problems, "roles_file": str(CAMERAS_FILE)}
+async def list_cameras(include_gone: bool = False) -> dict:
+    """List connected cameras: index, queue id, product name, camera_id (stable USB
+    vendor:product:serial), role (if set) and frame status, plus role problems.
+
+    Station keeps a queue for every camera it ever saw (a new one per replug on Linux);
+    unplugged ones are hidden unless include_gone=True.
+    """
+    cams, gone = await cameras()
+    roles, problems = camera_roles(cams, gone)
+    role_of = {c["queue"]: r for r, c in roles.items()}
+    out = {"cameras": [{"index": i, "queue": c["queue"], "product": c["product"], "camera_id": c["camera_id"],
+                        "role": role_of.get(c["queue"]),
+                        "frame": frame_status(c)[0] if c["jpeg"] is not None else "no frames yet"}
+                       for i, c in enumerate(cams)],
+           "role_problems": problems, "roles_file": str(CAMERAS_FILE), "unplugged_hidden": len(gone)}
+    if include_gone:
+        out["unplugged"] = [{"queue": c["queue"], "product": c["product"], "camera_id": c["camera_id"],
+                             "last_frame_age": _fmt_age(c["age_s"]) if c["age_s"] is not None else None}
+                            for c in gone]
+    return out
 
 
 @mcp.tool()
 async def set_camera_role(role: str, camera: str) -> dict:
-    """Name a camera, e.g. set_camera_role("desk", "1") or ("gripper", "usbvideo/3f2a").
+    """Name a camera, e.g. set_camera_role("desk", "1") or ("gripper", "32e6:9251:2025090142113").
 
-    camera: index from list_cameras, queue id or unique hash prefix; "none" removes the role.
+    camera: index, camera_id, queue id or queue hash prefix from list_cameras; "none" removes the role.
     Identify cameras from the picture first (`look`): the gripper cam shows the jaws and its
     view moves with the arm; the desk cam is fixed and shows the whole workspace.
-    Saved to data/cameras.json; a camera holds at most one role.
+    Saved to data/cameras.json by camera_id, so the role survives replugging the camera.
+    A camera holds at most one role.
     """
     role = role.strip().lower()
     if not _ROLE_RE.match(role) or role == "all" or role == "none":
@@ -539,19 +623,28 @@ async def set_camera_role(role: str, camera: str) -> dict:
     saved = _file_roles()
     if camera.strip().lower() == "none":
         saved.pop(role, None)
-        queue = None
+        cam = None
     else:
-        queues = await camera_queues()
-        queue = queues[int(camera)] if camera.isdigit() and int(camera) < len(queues) else _match_queue(camera, queues)
-        if queue is None:
-            raise RuntimeError(f"{camera!r} matches no single camera; connected: {queues}")
-        saved = {r: q for r, q in saved.items() if q != queue}  # one role per camera
-        saved[role] = queue
+        cams, _ = await cameras()
+        if camera.isdigit() and int(camera) < len(cams):
+            hits = [cams[int(camera)]]
+        else:
+            hits = _match_cameras(camera, cams)
+        if len(hits) != 1:
+            raise RuntimeError(f"{camera!r} matches no single camera; connected: "
+                               f"{[(c['queue'], c['camera_id']) for c in cams]}")
+        cam = hits[0]
+        if len([c for c in cams if c["camera_id"] == cam["camera_id"]]) > 1:
+            raise RuntimeError(f"two connected cameras share camera_id {cam['camera_id']!r} (identical models "
+                               "without serial numbers), so a role can't tell them apart")
+        saved = {r: ref for r, ref in saved.items() if not _match_cameras(ref, [cam])}  # one role per camera
+        saved[role] = cam["camera_id"]
     CAMERAS_FILE.parent.mkdir(parents=True, exist_ok=True)
     tmp = CAMERAS_FILE.with_suffix(".tmp")
     tmp.write_text(json.dumps(saved, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     tmp.replace(CAMERAS_FILE)
-    return {"role": role, "camera": queue, "saved_roles": saved, "file": str(CAMERAS_FILE)}
+    return {"role": role, "camera": cam["queue"] if cam else None,
+            "camera_id": cam["camera_id"] if cam else None, "saved_roles": saved, "file": str(CAMERAS_FILE)}
 
 
 @mcp.tool()

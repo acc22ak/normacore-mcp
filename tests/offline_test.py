@@ -185,7 +185,7 @@ async def main():
     out = await S.look()
     check("look returns label + image", isinstance(out[0], str) and hasattr(out[1], "data"))
     bad = await S.look("5")
-    check("look bad index gives message, not IndexError", len(bad) == 1 and "only 1 found" in bad[0], str(bad))
+    check("look bad index gives message, not IndexError", len(bad) == 1 and "only 1 connected" in bad[0], str(bad))
     check("look unknown name gives message", "No camera matching" in (await S.look("nope"))[0])
 
     # --- frame freshness: camera queues persist, so the "latest" frame can be old ---
@@ -193,13 +193,27 @@ async def main():
     STATIC["usbvideo/abc"] = cam_frame(0.2)
     out = await S.look()
     check("fresh frame: age shown, not stale", "0.2 s old" in out[0] and "STALE" not in out[0], out[0])
+    STATIC["usbvideo/abc"] = cam_frame(30)
+    out = await S.look()
+    check("old frame flagged STALE with age", "STALE" in out[0] and "30.0 s old" in out[0] and "NOT the current scene" in out[0], out[0])
+    check("stale frame still returned for diagnosis", hasattr(out[1], "data"))
+    # past CAMERA_GONE_S (60 s) the camera counts as unplugged: hidden, but reachable by id
     STATIC["usbvideo/abc"] = cam_frame(3 * 3600)
     out = await S.look()
-    check("old frame flagged STALE with age", "STALE" in out[0] and "3.0 h old" in out[0] and "NOT the current scene" in out[0], out[0])
-    check("stale frame still returned for diagnosis", hasattr(out[1], "data"))
+    check("long-dead camera hidden from look('all')", len(out) == 1 and "No cameras connected (1 unplugged" in out[0], out[0])
+    out = await S.look("abc")
+    check("unplugged camera still viewable by id, flagged STALE", out[0].startswith("unplugged camera:") and "3.0 h old" in out[0] and hasattr(out[1], "data"), out[0])
     STATIC["usbvideo/abc"] = [cam_frame(0.5), cam_event(usbvideo.RxEnvelopeType.ET_DEVICE_DISCONNECTED)]
-    out = await S.look()
+    check("disconnected camera hidden", (await S.list_cameras())["cameras"] == [])
+    out = await S.look("abc")
     check("disconnect after last frame flagged STALE", "STALE: camera reported disconnected" in out[0], out[0])
+    # what the real Station writes last on unplug ("Capture session ... ended")
+    STATIC["usbvideo/abc"] = [cam_frame(0.5), cam_event(usbvideo.RxEnvelopeType.ET_DEVICE_RECORDING_END)]
+    lc = await S.list_cameras(include_gone=True)
+    check("capture-end counts as unplugged", lc["cameras"] == [] and lc["unplugged_hidden"] == 1 and lc["unplugged"][0]["queue"] == "usbvideo/abc", str(lc))
+    STATIC["usbvideo/abc"] = cam_event(usbvideo.RxEnvelopeType.ET_DEVICE_CONNECTED)
+    lc = await S.list_cameras()
+    check("just-connected camera without frames is listed", [c["frame"] for c in lc["cameras"]] == ["no frames yet"], str(lc))
     STATIC["usbvideo/abc"] = [cam_event(usbvideo.RxEnvelopeType.ET_DEVICE_DISCONNECTED), cam_event(usbvideo.RxEnvelopeType.ET_DEVICE_CONNECTED), cam_frame(0.1)]
     out = await S.look()
     check("reconnected camera with fresh frame is fine", "STALE" not in out[0], out[0])
@@ -251,6 +265,51 @@ async def main():
     out = await S.look()
     check("look surfaces role problems", out[0].startswith("camera role problems:"), out[0])
     del os.environ["CAMERAS"]; await S.set_camera_role("main", "none")
+
+    # --- roles follow the physical camera across replugs (real Linux queue ids) ---
+    # On Linux Station's unique_id ends in the USB device number, which changes per replug,
+    # so a replugged camera shows up under a new "/<station>/usbvideo/<md5>" queue.
+    def usb_cam(age_s, product, vid, pid, serial):
+        import time
+        stamp = frame.FrameStamp(local_stamp_ns=time.time_ns() - int(age_s * 1e9))
+        cam = usbvideo.Camera(product=product, vendor_id=vid, product_id=pid, serial_number=serial)
+        return usbvideo.RxEnvelope(type=usbvideo.RxEnvelopeType.ET_FRAMES, camera=cam, stamp=stamp,
+                                   frames=frame.FramesPack(frames_data=[JPEG], stamps=[stamp])).encode()
+    def index(*qs):
+        STATIC["inference-states"] = inference.InferenceRx(entries=[
+            inference.InferenceRx_Entry(queue=q, type=drivers.QueueDataType.QDT_USB_VIDEO_FRAMES) for q in qs]).encode()
+    DESK1, DESK2, GRIP = "/st1/usbvideo/17f9aa", "/st1/usbvideo/e606bb", "/st1/usbvideo/43c6cc"
+    STATIC[DESK1] = usb_cam(0.1, "Web Camera", 0x32e6, 0x9228, "202604081837")
+    STATIC[GRIP] = usb_cam(0.1, "FHD C3 Camera", 0x32e6, 0x9251, "2025090142113")
+    index(DESK1, GRIP)
+    r = await S.set_camera_role("desk", "17f9")
+    check("hash prefix matches station-prefixed queue ids", r["camera"] == DESK1, str(r))
+    check("role saved by stable camera_id", r["saved_roles"] == {"desk": "32e6:9228:202604081837"}, str(r))
+    await S.set_camera_role("gripper", "32e6:9251:2025090142113")
+    # unplug the desk cam: its queue ends with capture-end
+    STATIC[DESK1] = [usb_cam(0.5, "Web Camera", 0x32e6, 0x9228, "202604081837"),
+                     usbvideo.RxEnvelope(type=usbvideo.RxEnvelopeType.ET_DEVICE_RECORDING_END,
+                                         camera=usbvideo.Camera(product="Web Camera", vendor_id=0x32e6, product_id=0x9228,
+                                                                serial_number="202604081837")).encode()]
+    out = await S.look("desk")
+    check("unplugged role gives a clear message", len(out) == 1 and "is unplugged" in out[0] and "Web Camera" in out[0], out[0])
+    # replug: same camera, new queue
+    STATIC[DESK2] = usb_cam(0.1, "Web Camera", 0x32e6, 0x9228, "202604081837")
+    index(DESK1, DESK2, GRIP)
+    out = await S.look("desk")
+    check("role follows the camera to its new queue", len(out) == 2 and "[desk]" in out[0] and DESK2 in out[0], out[0])
+    lc = await S.list_cameras()
+    check("old queue hidden, roles intact", [(c["queue"], c["role"]) for c in lc["cameras"]] == [(GRIP, "gripper"), (DESK2, "desk")]
+          and lc["role_problems"] == [] and lc["unplugged_hidden"] == 1, str(lc))
+    out = await S.look()
+    check("look('all') shows only the 2 connected cameras", len(out) == 4, str(out[::2]))
+    # legacy roles saved as queue ids still work
+    await S.set_camera_role("desk", "none"); await S.set_camera_role("gripper", "none")
+    os.environ["CAMERAS"] = f"top={GRIP}"
+    check("legacy queue-id role still resolves", (await S.list_cameras())["cameras"][0]["role"] == "top")
+    del os.environ["CAMERAS"]
+    for q in (DESK1, DESK2, GRIP):
+        STATIC.pop(q)
 
     STATIC.clear(); STATIC.update(saved)
     st = await S.get_robot_state()

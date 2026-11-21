@@ -128,11 +128,12 @@ Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future ru
    its frame is; a frame marked **STALE** (older than `FRAME_MAX_AGE_S`, or the camera reported a disconnect) is not
    the current scene. Never plan or verify a move with it: stop and tell the human the camera needs checking.
    Use camera **roles**: `look("desk")` for the workspace, `look("gripper")` for fine alignment. Station doesn't know
-   which camera is which (queues are `usbvideo/<md5 of device id>`), so at session start call `list_cameras`; if roles
-   are missing or `role_problems` is non-empty, `look` at all cameras, identify them (gripper cam shows the jaws and its
-   view moves with the arm; desk cam is fixed and shows the whole table), call `set_camera_role`, and tell the human.
-   Unverified: whether a camera keeps its queue id when moved to another USB port (macOS id = AVFoundation
-   `uniqueID`, `avf.m:418`); a broken role shows up in `role_problems`.
+   which camera is which (queues are `/<station>/usbvideo/<md5 of device id>`), so at session start call `list_cameras`;
+   if roles are missing or `role_problems` is non-empty, `look` at all cameras, identify them (gripper cam shows the jaws
+   and its view moves with the arm; desk cam is fixed and shows the whole table), call `set_camera_role`, and tell the human.
+   Roles are saved by `camera_id` (USB `vendor:product:serial`), not queue id: on Linux the device id ends in the USB
+   device number, so every replug creates a new queue. Queues of unplugged cameras (no frame for `CAMERA_GONE_S`, or
+   a disconnect/capture-end event) are hidden; `list_cameras(include_gone=True)` shows them.
 2. Only ever command the **follower** bus (`FOLLOWER_BUS`). Never write to the leader.
 3. Small steps: `nudge_joints` ≤ 0.05 when near objects/table; the server also clamps each call to `MAX_STEP_NORM` (0.15).
 4. Don't move uncalibrated joints or joints reporting `error_status != 0`.
@@ -329,6 +330,7 @@ use `{"skill": "<other skill>"}` steps. `raw` and `calibration` are there so a s
 ---
 
 # Learned facts (Claude appends here as it learns; newest first)
+- 2026-11-21: On Linux, Station's camera unique_id is `vid:pid:bus:devnum` (decimal), and devnum changes on every replug, so each replug makes a new `/<station>/usbvideo/<md5>` queue; old queues stay, ending with `ET_DEVICE_RECORDING_END` (not `ET_DEVICE_DISCONNECTED`). Linux also needs a udev rule giving the user rw on UVC USB devices, or Station logs `Failed to open device ... -3` (libusb access denied).
 <!-- format: - YYYY-MM-DD: fact (evidence) -->
 - 2026-11-21: Unfrozen calibration ranges keep widening during use (st3215 port_meta.rs:407-423); auto-calibration zeroes the servo Position Offset (calibrator.rs:423-424); mirroring deadband is 20 steps ≈1.8° (mirror.rs:190-195).
 - 2026-11-21: Station has built-in leader→follower mirroring, controllable via `STC_MOTOR_MIRRORING_COMMAND`; nothing arbitrates between it and our writes (motors-mirroring source, ADR 0009).

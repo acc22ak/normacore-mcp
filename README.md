@@ -113,7 +113,8 @@ claude mcp add normacore \
 ```
 Then in `claude`: `/mcp` should list `normacore` with 13 tools.
 Then name the cameras once: ask Claude to `look`, tell which picture is which, and `set_camera_role` them
-(or set `CAMERAS`). Station itself has no idea which camera is the gripper cam.
+(or set `CAMERAS`). Station itself has no idea which camera is the gripper cam. Roles are saved by the
+camera's USB vendor:product:serial, so they survive replugging it or moving it to another port.
 
 ### Codex (`~/.codex/config.toml`)
 ```toml
@@ -134,7 +135,7 @@ env = { NORMA_CORE_REPO = "/Users/you/norma-core", STATION_HOST = "localhost", F
 | `GRIPPER_MOTOR_ID` | `8` | `6` for an SO-101 |
 | `LEADER_BUS` | auto if exactly 2 buses | leader arm serial, used by `teach_mode`; never commanded |
 | `TEACH_MAX_POSE_DIFF` | `0.2` | `teach_mode(on)` refuses if leader/follower poses differ more than this (normalized) |
-| `CAMERAS` | — | default camera roles, e.g. `desk=usbvideo/9c1e,gripper=3f2a` (queue id or unique hash prefix); `data/cameras.json` wins |
+| `CAMERAS` | — | default camera roles, e.g. `desk=32e6:9228:202604081837,gripper=3f2a` (`camera_id` from `list_cameras`, queue id or queue hash prefix); `data/cameras.json` wins |
 | `CAMERAS_FILE` | `data/cameras.json` | where `set_camera_role` saves roles |
 | `MAX_VEL_NORM` | `0.5` | fast-mode speed cap per joint (normalized range per second); untuned, start low |
 | `MOTION_RATE_HZ` | `20` | fast-mode control rate |
@@ -142,6 +143,7 @@ env = { NORMA_CORE_REPO = "/Users/you/norma-core", STATION_HOST = "localhost", F
 | `TRACK_ERR_MAX` / `TRACK_ERR_TICKS` | `0.10` / `5` | abort when a joint lags its target this much for this many ticks |
 | `LIMITS_FILE` | `data/limits.json` | optional soft limits per joint, e.g. `{"2": [0.1, 0.9]}` |
 | `FRAME_MAX_AGE_S` | `2.0` | `look` marks a camera frame older than this as STALE (e.g. camera unplugged or frozen). Assumes station and MCP share a clock |
+| `CAMERA_GONE_S` | `60` | a camera with no frame for this long, or that reported a disconnect, counts as unplugged and is hidden from `look("all")` / `list_cameras` (Station keeps a queue for every camera it ever saw; `list_cameras(include_gone=True)` shows them) |
 | `MCP_TRANSPORT` | `stdio` | `streamable-http` to run the server yourself (e.g. in a tmux pane to watch logs) |
 | `MCP_HOST` / `MCP_PORT` | `127.0.0.1` / `8790` | listen address for `streamable-http` |
 
