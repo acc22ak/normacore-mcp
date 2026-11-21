@@ -85,20 +85,43 @@ def _dist_to_segment(p: dict, a: dict, b: dict) -> float:
 
 
 def _rdp(points: list[tuple], tol: float) -> list[int]:
-    """Indices kept by Ramer-Douglas-Peucker on [(norm, raw)]."""
-    if len(points) <= 2:
-        return list(range(len(points)))
-    a, b = points[0][0], points[-1][0]
-    k, dmax = 0, -1.0
-    for i in range(1, len(points) - 1):
-        d = _dist_to_segment(points[i][0], a, b)
-        if d > dmax:
-            k, dmax = i, d
-    if dmax <= tol:
-        return [0, len(points) - 1]
-    left = _rdp(points[:k + 1], tol)
-    right = _rdp(points[k:], tol)
-    return left[:-1] + [k + i for i in right]
+    """Indices kept by Ramer-Douglas-Peucker on [(norm, raw)] (iterative: long demos can't hit
+    Python's recursion limit)."""
+    n = len(points)
+    if n <= 2:
+        return list(range(n))
+    keep = {0, n - 1}
+    stack = [(0, n - 1)]
+    while stack:
+        s, e = stack.pop()
+        if e - s < 2:
+            continue
+        a, b = points[s][0], points[e][0]
+        k, dmax = s, -1.0
+        for i in range(s + 1, e):
+            d = _dist_to_segment(points[i][0], a, b)
+            if d > dmax:
+                k, dmax = i, d
+        if dmax > tol:
+            keep.add(k)
+            stack.append((s, k))
+            stack.append((k, e))
+    return sorted(keep)
+
+
+def decimate(samples: list[tuple], dt: float) -> list[tuple]:
+    """(norm, raw) points at least dt seconds apart (always keeps the first and last sample).
+    Used for human demonstrations, which follow a path without pausing like Claude does."""
+    if not samples:
+        return []
+    out, next_t = [samples[0]], samples[0][0] + dt
+    for s in samples[1:-1]:
+        if s[0] >= next_t:
+            out.append(s)
+            next_t = s[0] + dt
+    if len(samples) > 1:
+        out.append(samples[-1])
+    return [(n, r) for _, n, r in out]
 
 
 def simplify_path(points: list[tuple], gripper_id: int, tol: float = 0.02, grip_tol: float = 0.02) -> list[tuple]:

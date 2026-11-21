@@ -347,6 +347,41 @@ async def main():
     r = await S.move_joints({"1": 0.5})
     check("move allowed once mirroring is off", r["bus"] == "FOLLOW")
 
+    # --- optional teach mode: the leader arm drives the follower ---
+    import estop as E
+    MIRROR.update(present=True); MIRROR["links"].clear()
+    STATIC["estop/state"] = E.encode_latch(True, "hold", "test")
+    await expect_error("teach mode refused while the e-stop is latched", S.teach_mode(True), "E-STOP is latched")
+    del STATIC["estop/state"]
+    MODEL["LEAD"][2]["pos"] = 2800
+    r = await S.teach_mode(True)
+    check("teach_mode refuses big pose diff (follower would jump)", r["teach_mode"] == "refused" and "shoulder" in r["problems"], str(r))
+    for j, m in MODEL["LEAD"].items():
+        m["pos"] = MODEL["FOLLOW"][j]["pos"]
+    SIM.update(on=False, stamp=5 * 10**12)
+    r = await S.teach_mode(True)
+    check("teach_mode on confirmed and starts an attempt", r["teach_mode"] == "on" and r["leader"] == "LEAD" and "started" in r["attempt"], str(r))
+    start = [mirroring.CommandReader(x.get_body()) for x in SENT
+             if x.get_type() == drivers.StationCommandType.STC_MOTOR_MIRRORING_COMMAND][-1]
+    check("START command shape", start.get_type() == mirroring.CommandType.CT_START_MIRROR
+          and start.get_source().get_unique_id() == "LEAD" and [t.get_unique_id() for t in start.get_targets()] == ["FOLLOW"])
+    att = json.load(open(os.environ["ATTEMPT_FILE"]))
+    check("attempt marker: source teach, since = station time after settling", att["source"] == "teach" and att["since_ns"] == 5 * 10**12, att)
+    await expect_error("other motion refused while teach mode is on (hint names teach_mode)", S.move_joints({"1": 0.5}), "teach_mode(on=False)")
+    SIM["stamp"] = 5 * 10**12 + 7 * 10**9
+    r = await S.teach_mode(False)
+    check("teach_mode off + holding", r["teach_mode"] == "off" and r["holding"], str(r))
+    stop = [mirroring.CommandReader(x.get_body()) for x in SENT
+            if x.get_type() == drivers.StationCommandType.STC_MOTOR_MIRRORING_COMMAND][-1]
+    check("STOP uses follower as source (like web UI)", stop.get_type() == mirroring.CommandType.CT_STOP_MIRROR
+          and stop.get_source().get_unique_id() == "FOLLOW")
+    att = json.load(open(os.environ["ATTEMPT_FILE"]))
+    check("teach off marks the end of the demonstration (before the sag)", att["until_ns"] == 5 * 10**12 + 7 * 10**9, att)
+    check("follower torque back on after teach off", all(m["torque"] == 1 for m in MODEL["FOLLOW"].values()))
+    os.remove(os.environ["ATTEMPT_FILE"])
+    MIRROR["links"].clear(); MIRROR["modes"].clear()
+
+
     # --- mirroring driver absent: motion allowed ---
     MIRROR["present"] = False; MIRROR["modes"].clear()
     r = await S.move_joints({"1": 0.5})
@@ -355,11 +390,12 @@ async def main():
     await motion_engine_tests()
     await learning_tests()
     await self_learning_tests()
+    await teach_demo_tests()
 
     tools = sorted(t.name for t in await S.mcp.list_tools())
     print("tools:", tools)
-    check("teach mode + recording tools removed (17 tools)",
-          not ({"teach_mode", "skill_from_history"} & set(tools)) and len(tools) == 17, len(tools))
+    check("teach_mode back (optional), no separate recording tool (18 tools)",
+          "teach_mode" in tools and "skill_from_history" not in tools and len(tools) == 18, len(tools))
     check("motion tools registered", {"go_to", "play_motion", "stop_motion"} <= set(tools))
     print(f"\n{'ALL PASSED' if not FAILS else f'{len(FAILS)} FAILED: {FAILS}'}")
     sys.exit(1 if FAILS else 0)
@@ -599,6 +635,53 @@ async def self_learning_tests():
         m["rmin"] = 1000
     SIM["on"] = False
 
+
+def demo_history(t0_ns, hz=50):
+    """A human demo with the leader: L-shaped path WITHOUT pauses (shoulder up, then elbow),
+    gripper closes at the end; then, after teach mode is turned off, a sag (shoulder drops)."""
+    out, t = [], 0.0
+    pose = {2: 2000, 4: 2000, 8: 2800}
+    def emit():
+        nonlocal t
+        out.append(history_entry(t0_ns + int(t * 1e9), dict(pose))); t += 1 / hz
+    for i in range(int(2 * hz)): pose[2] = 2000 + int(400 * i / (2 * hz)); emit()
+    for i in range(int(2 * hz)): pose[4] = 2000 + int(400 * i / (2 * hz)); emit()
+    for i in range(int(1 * hz)): pose[8] = 2800 - int(600 * i / hz); emit()
+    for i in range(int(0.5 * hz)): emit()
+    end_ns = t0_ns + int(t * 1e9)
+    for i in range(int(1 * hz)): pose[2] = 2400 - int(300 * i / hz); emit()   # sag after teach off
+    return out, end_ns
+
+async def teach_demo_tests():
+    print("\n--- optional: learn from a leader-arm demonstration (same save tool) ---")
+    MIRROR.update(present=True); MIRROR["links"].clear(); MIRROR["modes"].clear()
+    reset_follower(); SIM["on"] = False
+    for j, m in MODEL["LEAD"].items():
+        m["pos"] = MODEL["FOLLOW"][j]["pos"]
+    t0 = 6 * 10**12
+    SIM["stamp"] = t0
+    r = await S.teach_mode(True)
+    check("teach on starts the attempt", r["teach_mode"] == "on", str(r))
+    hist, end_ns = demo_history(t0)
+    HISTORY[:] = hist
+    SIM["stamp"] = end_ns
+    await S.teach_mode(False)
+    r = await S.save_attempt_as_skill("demo_l")
+    HISTORY[:] = []
+    check("demo saved with the same tool, marked as demo", r["source"] == "demo", str(r))
+    sk = json.load(open(os.path.join(os.environ["SKILLS_DIR"], "demo_l.json")))
+    raws = [(k["raw"]["2"], k["raw"]["4"]) for k in sk["keyframes"]]
+    check("demo path shape kept: the L's corner is a keyframe", any(abs(a - 2400) <= 15 and abs(b - 2000) <= 15 for a, b in raws), raws)
+    check("demo ends where the human ended (sag after teach off excluded)",
+          abs(sk["keyframes"][-1]["raw"]["2"] - 2400) <= 15 and abs(sk["keyframes"][-1]["raw"]["8"] - 2200) <= 15, sk["keyframes"][-1]["raw"])
+    MIRROR.update(present=False)
+    reset_follower()
+    MODEL["FOLLOW"][8].update(pos=2800, goal=2800)
+    r = await S.run_skill("demo_l")
+    check("demo skill runs fast and reaches the demo's end pose", r["completed"]
+          and abs(MODEL["FOLLOW"][2]["pos"] - 2400) <= 25 and abs(MODEL["FOLLOW"][4]["pos"] - 2400) <= 25, str(r))
+    await S.report_skill_result(r["run_id"], True)
+    SIM["on"] = False
 
 def reset_follower():
     for m in MODEL["FOLLOW"].values():

@@ -8,7 +8,8 @@ and **move the ElRobot follower arm** through the NormaCore Station API.
 ```
 
 Tools: `look`, `list_cameras`, `get_robot_state`, `move_joints`, `nudge_joints`,
-`set_gripper`, `hold`, `relax` (safe stop: torque off), `set_camera_role` (name cameras "desk" / "gripper" so
+`set_gripper`, `hold`, `relax` (safe stop: torque off), `teach_mode` (optional: the leader arm drives the
+follower), `set_camera_role` (name cameras "desk" / "gripper" so
 `look("desk")` works; saved in `data/cameras.json`).
 
 **Fast mode:** `go_to` (one smooth move) and `play_motion` (a whole sequence of keyframes or a dense recording,
@@ -21,6 +22,10 @@ stay as the slow, careful mode for learning.
 its own attempt into a fast skill (thinking pauses and small steps removed: a ~27 s attempt became a ~3–6 s skill in
 tests). Next time it runs the skill in one call. Say "practise it" to have it speed itself up (it alternates A→B and
 B→A, so nobody has to reset the cube).
+
+**Or show it with the leader arm (optional):** "teach mode on" → move the leader arm through the task → "teach mode
+off, save it as cube_a_to_b". No recording step: teach mode marks the start and end, and `save_attempt_as_skill`
+keeps the shape of your path. Then it practises exactly like a self-learned skill.
 
 **Skills and speed:** `start_attempt` / `save_attempt_as_skill` learn, `list_skills` shows them, `run_skill` plays one in one call; after each run Claude
 `look`s once and calls `report_skill_result`. Every **2 successes in a row** raise the speed one level
@@ -121,7 +126,7 @@ claude mcp add normacore \
   -e FOLLOWER_BUS=<FOLLOWER_SERIAL> \
   -- $PWD/.venv/bin/python $PWD/server.py
 ```
-Then in `claude`: `/mcp` should list `normacore` with 17 tools.
+Then in `claude`: `/mcp` should list `normacore` with 18 tools.
 Then name the cameras once: ask Claude to `look`, tell which picture is which, and `set_camera_role` them
 (or set `CAMERAS`). Station itself has no idea which camera is the gripper cam. Roles are saved by the
 camera's USB vendor:product:serial, so they survive replugging it or moving it to another port.
@@ -143,7 +148,9 @@ env = { NORMA_CORE_REPO = "/Users/you/norma-core", STATION_HOST = "localhost", F
 | `MAX_STEP_NORM` | `0.15` | max joint change per call (0..1 of range); bigger requests get clamped |
 | `MOVE_SPEED` | `600` | servo speed in steps/s |
 | `GRIPPER_MOTOR_ID` | `8` | `6` for an SO-101 |
-| `LEADER_BUS` | — | optional leader arm serial; it is never commanded (Station's mirroring leaders are refused anyway) |
+| `LEADER_BUS` | auto if exactly 2 buses | leader arm serial: never commanded; used by `teach_mode` |
+| `TEACH_MAX_POSE_DIFF` | `0.2` | `teach_mode(on)` refuses if leader/follower poses differ more than this (normalized) |
+| `DEMO_PATH_TOL` | `0.01` | how closely a leader-arm demonstration's path is kept when saved as a skill |
 | `CAMERAS` | — | default camera roles, e.g. `desk=32e6:9228:202604081837,gripper=3f2a` (`camera_id` from `list_cameras`, queue id or queue hash prefix); `data/cameras.json` wins |
 | `CAMERAS_FILE` | `data/cameras.json` | where `set_camera_role` saves roles |
 | `MAX_VEL_NORM` | `0.5` | fast-mode speed cap per joint (normalized range per second); untuned, start low |

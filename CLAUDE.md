@@ -151,8 +151,12 @@ Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future ru
 6. If mirroring (teleop) targets the follower, don't move it: two writers fight over the arm and Station won't stop
    them. `server.py` enforces this: `move_joints`/`nudge_joints`/`set_gripper`/`hold` refuse while the follower is a
    mirroring target or when the bus is a leader (fails closed if `inference/mirroring` can't be read; allowed if the
-   queue doesn't exist, i.e. no mirroring driver). `relax` is always allowed. There is no tool to switch mirroring:
-   if it's on, ask the human to turn it off on the follower's bus card in the web UI. The leader arm is never used.
+   queue doesn't exist, i.e. no mirroring driver). `relax` is always allowed. Turn mirroring off with
+   `teach_mode(on=False)` (or the human does it on the follower's bus card in the web UI). The leader bus is never
+   commanded; it only drives the follower through Station's mirroring.
+7. `teach_mode(on=True)` makes the follower jump to the leader's pose, so it refuses if any joint differs by more than
+   `TEACH_MAX_POSE_DIFF` (0.2) unless `force=True`, and while the e-stop is latched. `teach_mode(on=False)` waits for
+   Station's torque-off, then holds (the arm may sag briefly: the human should support it).
 
 ## Dev notes
 - Offline test without hardware: `python tests/offline_test.py . <norma-core path>` (monkeypatches queue reads/sends with simulated frames).
@@ -170,14 +174,15 @@ Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future ru
 Other teams will likely have Claude guess raw joint angles from images, which fails on stage. We keep
 geometry out of the LLM: **Claude solves a task once, slowly, with both cameras, turns its own success into a
 fast skill, and practises until it's fast. No human demonstration, no hand-coded angles.**
-Pitch: *"Just tell it what to do. It figures it out with its eyes, then teaches itself to do it fast."*
+Pitch: *"Just tell it what to do. It figures it out with its eyes, then teaches itself to do it fast. Or show it once
+with the leader arm."*
 
 # Roadmap (update the Status column as work lands)
 | P | Component | File(s) | What | Status |
 |---|---|---|---|---|
 | P0 | Station I/O | `station_io.py` | split connection/state/camera/command code out of `server.py` | todo |
 | P0 | Fast playback engine | `motion.py` (pure logic), `server.py` (`go_to`, `play_motion`, `stop_motion`) | ~20 Hz streaming of eased keyframes or dense recordings, `speed_scale`, per-joint velocity cap (`MAX_VEL_NORM`), soft limits (`data/limits.json`); aborts + holds on servo error bits (voltage ignored like Station), over-current (=collision), tracking error, stale state, stop/hold/relax, cancellation (shielded hold); gripper over-current = grasp (stops squeezing) | done, offline-tested (simulated servos); **not yet tried on hardware** |
-| P0 | Mirroring guard | `server.py` | every motion tool refuses while the follower is a mirroring target (Station teleop switched on in the web UI) or the bus is a leader | done, offline-tested; **not yet tried on hardware** |
+| P0 | Mirroring guard + optional teach mode | `server.py` | every motion tool refuses while the follower is mirrored or the bus is a leader; `teach_mode(on/off)` lets the leader arm drive the follower and marks the start/end of a demonstration attempt (no separate recording step) | done, offline-tested; **not yet tried on hardware** |
 | P0 | Poses | `poses.py`, `data/poses.json` | `save_pose`, `list_poses`, `go_to_pose` | todo |
 | P0 | Self-learning | `learn.py` (pure), `server.py` | `start_attempt(task)` + `save_attempt_as_skill(name)`: Claude's own slow, verified attempt -> rest poses -> straight-line merge (gripper changes kept) -> timed keyframes + raw + start pose + calibration snapshot | done, offline-tested; **not yet tried on hardware** |
 | P1 | Skills + practice ladder | `server.py`, `data/skills/*.json`, `data/runs.jsonl` | `list_skills`, `run_skill` (fast, one call), `report_skill_result`; ladder 0.5 → 0.75 → 1.0 → … after **2 successes in a row**, one level down on failure; engine abort = failure; calibration change → replay from raw at ≤0.5 + `needs_check` | done, offline-tested; **not yet tried on hardware** |
@@ -190,7 +195,7 @@ Pitch: *"Just tell it what to do. It figures it out with its eyes, then teaches 
 
 Final tool surface: perception (`look`, `list_cameras`, `set_camera_role`, `find_objects`, `gripper_status`, `get_robot_state`), motion (`go_to`,
 `play_motion`, `stop_motion`, `go_to_pose`, `nudge_joints`, `grasp`, `release`), planned (`edit_skill`, `pick`, `place`), learning
-(`start_attempt`, `save_attempt_as_skill`, `save_pose`), skills (`list_skills`, `run_skill`, `report_skill_result`), safety (`hold`, `relax`).
+(`start_attempt`, `save_attempt_as_skill`, optional `teach_mode`, `save_pose`), skills (`list_skills`, `run_skill`, `report_skill_result`), safety (`hold`, `relax`).
 **If a tool you need for the protocol below doesn't exist yet, build it (roadmap order) rather than improvising with raw joint moves.**
 
 ---
@@ -211,6 +216,16 @@ No human demonstration needed: you solve the task once, slowly, and your own suc
 5. Name skills `<what>_<from>_to_<to>` (e.g. `cube_a_to_b`); write preconditions into the description ("cube on A,
    gripper empty"). Commit the new skill to git (`learn: add skill <name>`).
 6. First replay is at speed 0.5 (practice ladder). Reset the scene first: put the object back, or run the reverse skill.
+
+**Optional: the human shows it with the leader arm** (when they ask, or when you've failed to learn it twice).
+There is no recording step; teach mode *is* the attempt:
+1. Ask the human to put the leader arm roughly in the follower's pose, then `teach_mode(on=True)`. Once the
+   follower has settled, the attempt starts automatically.
+2. The human shows the task once with the leader arm (the follower copies it).
+3. `teach_mode(on=False)` marks the end (before the arm's brief sag), then `save_attempt_as_skill(name, description)`.
+   For a demonstration it keeps the *shape of the path* (sampled every 0.1 s, near-straight stretches merged,
+   `DEMO_PATH_TOL` 0.01), because humans don't pause between moves like you do. Skill `source.type` is `"demo"`.
+4. From here it's the same as a self-learned skill: replay at 0.5, practice ladder, improve it with your own attempts.
 
 ## 2. Every time you run a skill → practice ladder (this is how it gets fast)
 - Before: `look` once, check the preconditions (object on its marked spot?). Then `run_skill(name)`: the whole

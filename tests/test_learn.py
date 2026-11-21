@@ -73,5 +73,14 @@ corner = [({1: 0.0}, {}), ({1: 0.5}, {}), ({1: 0.0}, {})]   # go out and come ba
 check("a real turn is kept, not merged", len(L.simplify_path(corner, gripper_id=8)) == 3)
 check("still recording -> one pose pair", len(L.pause_keyframes([(i * 0.05, {1: 0.5}, {1: 2000}) for i in range(40)])) == 2)
 
+# --- leader-arm demonstrations: keep the path shape ---
+L_path = [(i * 0.02, {1: min(i, 100) / 200, 2: max(i - 100, 0) / 200, 8: 0.9}, {}) for i in range(201)]  # continuous L, no pauses
+pts = L.decimate(L_path, 0.1)
+check("decimate: ~0.1 s spacing, keeps first/last", 38 <= len(pts) <= 41 and pts[0] == (L_path[0][1], L_path[0][2]) and pts[-1] == (L_path[-1][1], L_path[-1][2]), len(pts))
+shape = [(round(p[0][1], 2), round(p[0][2], 2)) for p in L.simplify_path(pts, gripper_id=8, tol=0.01)]
+check("continuous L keeps start, corner, end", shape == [(0.0, 0.0), (0.5, 0.0), (0.5, 0.5)], shape)
+spiral = [({1: 0.5 + 0.4 * (i / 5000) * __import__("math").cos(i / 30), 2: 0.5 + 0.4 * (i / 5000) * __import__("math").sin(i / 30)}, {}) for i in range(5000)]
+check("long wiggly path doesn't hit the recursion limit", len(L.simplify_path(spiral, gripper_id=8, tol=0.001)) > 100)
+
 print(f"\n{'ALL PASSED' if not FAILS else f'{len(FAILS)} FAILED: {FAILS}'}")
 sys.exit(1 if FAILS else 0)
