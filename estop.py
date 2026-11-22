@@ -25,9 +25,11 @@ How it stops Claude, not just the servos:
 Limits (be honest about them):
   - It needs a working connection to Station. If Station or the network is down, it can't reach
     the servos: the real last resort is the arm's power switch / unplugging its 12 V brick.
-  - Station's own leader->follower mirroring is not stopped by the latch (only our MCP tools
-    read it). If teleop is on, RELAX still works (torque off), but HOLD gets overwritten by
-    the next mirrored goal. Turn mirroring off in the web UI or just let go of the leader.
+  - Station's own leader->follower mirroring (web-UI teleop or teach_mode) doesn't read the latch,
+    so every press also sends Station "stop mirroring" for any mirrored follower. Station answers
+    by turning that follower's torque off a moment later; HOLD keeps re-holding until that has
+    happened, so the arm may sag for ~0.1 s before it holds. Mirroring stays off after a release:
+    turn it back on deliberately (teach_mode(on=True) or the web UI).
 
 Env vars: NORMA_CORE_REPO (required for station I/O), STATION_HOST (default localhost),
 FOLLOWER_BUS (if set, HOLD only targets that bus), LEADER_BUS (never HOLD this bus).
@@ -109,6 +111,42 @@ def _station_modules():
     return _mods
 
 
+def _mirroring_module():
+    _station_modules()
+    from target.gen_python.protobuf.drivers.motors_mirroring import mirroring
+    return mirroring
+
+
+MIRRORING_QUEUE = "inference/mirroring"
+MIRROR_SETTLE_S = 2.5      # how long HOLD keeps re-holding after stopping Station's mirroring
+
+
+def parse_mirrored_followers(raw) -> list[str]:
+    """One inference/mirroring entry -> serials of buses that are currently mirroring targets."""
+    st = _mirroring_module().RxEnvelopeReader(raw).get_state()
+    out = []
+    for link in (st.get_mirroring() or []) if st is not None else []:
+        for t in link.get_targets() or []:
+            if t.get_id() is not None:
+                out.append(t.get_id().get_unique_id())
+    return out
+
+
+def stop_mirroring_commands(followers: list[str]) -> list:
+    """CT_STOP_MIRROR per follower, same shape as Station's web UI / server.teach_mode(on=False):
+    source = the follower bus, no targets. Station then unlinks it and (async) turns its torque off."""
+    mirroring = _mirroring_module()
+    _, _, commands, drivers = _station_modules()
+    out = []
+    for f in followers:
+        cmd = mirroring.Command(type=mirroring.CommandType.CT_STOP_MIRROR,
+                                source=mirroring.MirroringBus(type=mirroring.BusType.MBT_ST3215, unique_id=f),
+                                targets=[])
+        out.append(commands.DriverCommand(type=drivers.StationCommandType.STC_MOTOR_MIRRORING_COMMAND,
+                                          body=cmd.encode()))
+    return out
+
+
 def _pos(raw: int) -> int:
     # same sign handling as server._pos (ST3215 position register, bit 15 = sign)
     if raw & 0x8000:
@@ -145,10 +183,14 @@ def _sync_write(bus: str, address: int, writes: list[tuple[int, bytes]]):
     return commands.DriverCommand(type=drivers.StationCommandType.STC_ST3215_COMMAND, body=cmd.encode())
 
 
-def hold_commands(buses: dict[str, dict[int, dict]], follower: str = "", leader: str = "") -> tuple[list, list[str]]:
-    """Goal = present position, then torque on. Targets FOLLOWER_BUS if set, otherwise every bus
-    that is powered right now (a leader arm is limp, so it is skipped and never stiffened)."""
-    if follower:
+def hold_commands(buses: dict[str, dict[int, dict]], follower: str = "", leader: str = "",
+                  only: list[str] | None = None) -> tuple[list, list[str]]:
+    """Goal = present position, then torque on. Targets `only` if given (the buses chosen at the
+    first press), else FOLLOWER_BUS if set, else every bus that is powered right now (a leader arm
+    is limp, so it is skipped and never stiffened)."""
+    if only is not None:
+        targets = [b for b in only if b in buses]
+    elif follower:
         targets = [follower] if follower in buses else []
     else:
         targets = [b for b, ms in buses.items() if b != leader and any(m["torque"] for m in ms.values())]
@@ -204,6 +246,10 @@ class Station:
         if cmds:
             await _station_modules()[0].send_commands(self.client, cmds)
 
+    async def read_mirrored_followers(self) -> list[str]:
+        raw = await self._read_last(MIRRORING_QUEUE)
+        return [] if raw is None else parse_mirrored_followers(raw)
+
     async def read_latch(self) -> dict | None:
         raw = await self._read_last(QUEUE)
         return None if raw is None else decode_latch(raw)
@@ -214,19 +260,38 @@ class Station:
 
 async def trigger(st, mode: str, follower: str = "", leader: str = "", note: str = "",
                   repeats: int = REPEATS, interval: float = REPEAT_INTERVAL_S) -> dict:
-    """Stop the arm NOW, then latch. Returns what was done (and any problem)."""
-    import asyncio
-    result = {"mode": mode, "buses": [], "latched": False, "errors": []}
+    """Stop the arm NOW, then latch. Returns what was done (and any problem).
 
-    async def fire():
+    If Station's leader->follower mirroring (teleop / teach_mode) is driving a follower, it is
+    stopped too: otherwise the next mirrored goal would overwrite a HOLD. Station answers a stop
+    by turning that follower's torque off a moment later, so HOLD keeps re-holding for up to
+    MIRROR_SETTLE_S until that torque-off has landed (the arm may sag for ~0.1 s, then holds)."""
+    import asyncio
+    result = {"mode": mode, "buses": [], "latched": False, "errors": [], "mirroring_stopped": []}
+    held: list[str] | None = None          # HOLD targets, fixed at the first press
+
+    async def fire(first: bool = False):
+        nonlocal held
         buses = await st.read_buses()
-        cmds, targets = (relax_commands(buses) if mode == "relax"
-                         else hold_commands(buses, follower, leader))
+        if mode == "relax":
+            cmds, targets = relax_commands(buses)
+        else:
+            cmds, targets = hold_commands(buses, follower, leader, only=held)
+            if first:
+                held = targets + [b for b in result["mirroring_stopped"] if b not in targets and b in buses]
+                cmds, targets = hold_commands(buses, follower, leader, only=held)
         await st.send(cmds)
         return targets
 
-    try:                                   # 1. servos first: that's what actually stops motion
-        result["buses"] = await fire()
+    try:                                   # 0. stop Station's mirroring, so it can't overwrite us
+        mirrored = await st.read_mirrored_followers()
+        if mirrored:
+            await st.send(stop_mirroring_commands(mirrored))
+            result["mirroring_stopped"] = mirrored
+    except Exception as e:                 # noqa: BLE001 - report, still stop the servos
+        result["errors"].append(f"could not stop Station mirroring: {e}")
+    try:                                   # 1. servos: that's what actually stops motion
+        result["buses"] = await fire(first=True)
     except Exception as e:                 # noqa: BLE001 - report, still try to latch
         result["errors"].append(f"servo command failed: {e}")
     try:                                   # 2. latch, so the MCP server stops sending goals
@@ -241,6 +306,30 @@ async def trigger(st, mode: str, follower: str = "", leader: str = "", note: str
         except Exception as e:             # noqa: BLE001
             result["errors"].append(f"repeat failed: {e}")
             break
+    if mode == "hold" and result["mirroring_stopped"] and not any("repeat failed" in e for e in result["errors"]):
+        # 4. Station turns a freed follower's torque off asynchronously: keep holding until we've
+        #    seen it unlinked AND that torque-off has happened (then our hold is the last word).
+        stopped = set(result["mirroring_stopped"])
+        deadline = time.monotonic() + MIRROR_SETTLE_S
+        saw_limp, unlinked = False, False
+        while time.monotonic() < deadline:
+            try:
+                buses = await st.read_buses()
+                unlinked = not (stopped & set(await st.read_mirrored_followers()))
+                if any(not any(m["torque"] for m in buses.get(b, {}).values()) for b in stopped):
+                    saw_limp = True
+                if unlinked and saw_limp and all(any(m["torque"] for m in buses.get(b, {}).values()) for b in stopped):
+                    break
+                await fire()
+            except Exception as e:         # noqa: BLE001
+                result["errors"].append(f"re-hold after stopping mirroring failed: {e}")
+                break
+            await asyncio.sleep(interval)
+        else:
+            if not unlinked:
+                result["errors"].append("Station mirroring still active after stop: turn it off in the web UI")
+            elif not saw_limp:
+                result["note"] = "didn't observe Station's torque-off; arm is held"
     if mode == "hold" and not result["buses"] and not result["errors"]:
         result["errors"].append("no powered arm found to hold (nothing had torque on)")
     return result
@@ -306,10 +395,12 @@ async def interactive(st, follower: str, leader: str) -> None:
             ch = await keys.get()
             if ch == " ":
                 r = await trigger(st, "hold", follower, leader, note="key SPACE")
-                say(f">>> HOLD on {r['buses'] or 'no bus'}  latched={r['latched']}  {'; '.join(r['errors'])}")
+                mir = f"  stopped mirroring on {r['mirroring_stopped']}" if r["mirroring_stopped"] else ""
+                say(f">>> HOLD on {r['buses'] or 'no bus'}  latched={r['latched']}{mir}  {'; '.join(r['errors'])}")
             elif ch in ("x", "X", "\x1b"):
                 r = await trigger(st, "relax", follower, leader, note="key RELAX")
-                say(f">>> RELAX (torque off) on {r['buses']}  latched={r['latched']}  {'; '.join(r['errors'])}")
+                mir = f"  stopped mirroring on {r['mirroring_stopped']}" if r["mirroring_stopped"] else ""
+                say(f">>> RELAX (torque off) on {r['buses']}  latched={r['latched']}{mir}  {'; '.join(r['errors'])}")
             elif ch in ("r", "R"):
                 now = time.monotonic()
                 if now - last_r <= 3.0:

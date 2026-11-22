@@ -404,6 +404,7 @@ capped until the skill's status is `ok`;
 ---
 
 # Learned facts (Claude appends here as it learns; newest first)
+- 2026-11-22: Station's mirroring ignores the e-stop latch, so estop.py now also sends CT_STOP_MIRROR (source = follower, no targets) for any mirrored follower; Station then turns that follower's torque off asynchronously, so HOLD keeps re-holding until that torque-off has landed (tests/test_estop.py, simulated mirroring driver).
 - 2026-11-21: Station `read_from_tail` offsets count from 0 = newest entry (real Station: 3 entries, offset 0 → [e2], offset 1 → [e1, e2]). `read_last(n)` used offset n, so n=1 returned the second-newest entry (one write behind: harmless for st3215/inference at ~400 Hz, wrong for rarely-written queues like estop/state or inference/mirroring). Fixed to offset n-1; verified by tests/test_estop.py against a real Station.
 - 2026-11-21: `st3215/inference` updates ~400 Hz per bus on hardware (~530 entries/s with 2 buses), not 10–20 Hz. Reading it 1:1 is ~1 ms/entry, so long history reads use the read `step` (server-side stride; verified: 75 s in 1.6 s with step 25).
 - 2026-11-21: On Linux, Station's camera unique_id is `vid:pid:bus:devnum` (decimal), and devnum changes on every replug, so each replug makes a new `/<station>/usbvideo/<md5>` queue; old queues stay, ending with `ET_DEVICE_RECORDING_END` (not `ET_DEVICE_DISCONNECTED`). Linux also needs a udev rule giving the user rw on UVC USB devices, or Station logs `Failed to open device ... -3` (libusb access denied).

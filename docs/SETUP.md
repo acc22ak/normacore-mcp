@@ -186,9 +186,11 @@ It stops the servos directly **and** sets a latch in Station (`estop/state` queu
 autopilot check that latch before every move and on every motion tick, so a running `go_to` / `play_motion` /
 `run_skill` / `move_until` stops within one tick and every new move is refused until a human releases it.
 After a RELAX the server does **not** re-enable torque. The latch lives in Station, so it works when the e-stop
-and the MCP server run on different laptops. Limits: it needs Station to be reachable (the last resort is the
-12 V brick), and Station's own leader→follower mirroring doesn't read the latch (RELAX still works; HOLD gets
-overwritten by mirrored goals).
+and the MCP server run on different laptops. If Station's leader→follower mirroring is on (web-UI teleop or
+`teach_mode`), every press also **stops the mirroring**. Station then turns the follower's torque off a moment
+later, so HOLD keeps re-holding until that has happened: the arm may sag for ~0.1 s, then holds. Mirroring stays
+off after a release; turn it back on deliberately. Limit: it needs Station to be reachable (the last resort is
+the 12 V brick).
 
 ---
 

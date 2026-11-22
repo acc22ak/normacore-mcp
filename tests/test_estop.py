@@ -39,11 +39,39 @@ def check(name, cond, detail=""):
 STEP = 15                      # raw steps per read: slow enough that motions last ~1 s
 MODEL, LATCH = {}, []          # LATCH = entries of the estop/state queue (oldest first)
 SIM = {"stamp": 1}
+# Station's motors-mirroring, simulated: while FOLLOW is linked, every read copies the leader's
+# pose into the follower's goal; a STOP unlinks it and turns its torque off TORQUE_OFF_DELAY_S
+# later (async, like inference/mod.rs:91-131).
+MIRROR = {"links": {}, "pending_off": []}   # links: follower -> leader; pending_off: (time, bus)
+TORQUE_OFF_DELAY_S = 0.15
 
 def reset():
-    MODEL.clear(); LATCH.clear()
+    MODEL.clear(); LATCH.clear(); MIRROR["links"].clear(); MIRROR["pending_off"].clear()
     MODEL["FOLLOW"] = {i: {"pos": 2000, "goal": 2000, "torque": 1} for i in range(1, 9)}
     MODEL["LEAD"] = {i: {"pos": 2100, "goal": 2100, "torque": 0} for i in range(1, 9)}
+
+def sim_mirroring():
+    import time as _t
+    now = _t.monotonic()
+    for t, bus in list(MIRROR["pending_off"]):
+        if now >= t:
+            for m in MODEL[bus].values(): m["torque"] = 0
+            MIRROR["pending_off"].remove((t, bus))
+    for f, l in MIRROR["links"].items():
+        for i, m in MODEL[f].items():
+            m["goal"] = MODEL[l][i]["pos"]
+
+def enc_mirroring():
+    from target.gen_python.protobuf.drivers.motors_mirroring import mirroring
+    def mb(s): return mirroring.MirroringBus(type=mirroring.BusType.MBT_ST3215, unique_id=s)
+    by_leader = {}
+    for f, l in MIRROR["links"].items():
+        by_leader.setdefault(l, []).append(f)
+    st = mirroring.InferenceState(mirroring=[mirroring.InferenceState_Mirroring(
+        source=mirroring.InferenceState_Bus(id=mb(l), mode=mirroring.BusMode.BR_LEADER),
+        targets=[mirroring.InferenceState_Bus(id=mb(f), mode=mirroring.BusMode.BR_FOLLOWER) for f in fs])
+        for l, fs in by_leader.items()])
+    return mirroring.RxEnvelope(state=st).encode()
 
 def motor_state(pos, torque):
     b = bytearray(0x50)
@@ -52,6 +80,7 @@ def motor_state(pos, torque):
 
 def enc_st3215():
     SIM["stamp"] += 1
+    sim_mirroring()
     for m in MODEL["FOLLOW"].values():
         if m["torque"]:
             m["pos"] += max(-STEP, min(STEP, m["goal"] - m["pos"]))
@@ -68,12 +97,25 @@ async def fake_read_last(q, n=1, timeout=None, step=1):
         return [memoryview(enc_st3215())]
     if q == E.QUEUE and LATCH:
         return [memoryview(LATCH[-1])]
-    raise S.QueueMissing(q)          # mirroring queue absent, estop queue not created yet
+    if q == S.MIRRORING_QUEUE and MIRROR["links"]:
+        return [memoryview(enc_mirroring())]
+    raise S.QueueMissing(q)          # mirroring off/absent, estop queue not created yet
 
-SENT = []
+SENT, MIRROR_CMDS = [], []
 async def fake_send(_c, cmds):
+    import time as _t
+    from target.gen_python.protobuf.drivers.motors_mirroring import mirroring
     for c in cmds:
         r = commands.DriverCommandReader(memoryview(c.encode()))
+        if r.get_type() == drivers.StationCommandType.STC_MOTOR_MIRRORING_COMMAND:
+            m = mirroring.CommandReader(r.get_body())
+            src = m.get_source().get_unique_id()
+            MIRROR_CMDS.append((m.get_type(), src, [t.get_unique_id() for t in m.get_targets() or []]))
+            if m.get_type() == mirroring.CommandType.CT_STOP_MIRROR:   # source may be follower or leader
+                for f in [f for f, l in MIRROR["links"].items() if src in (f, l)]:
+                    del MIRROR["links"][f]
+                    MIRROR["pending_off"].append((_t.monotonic() + TORQUE_OFF_DELAY_S, f))
+            continue
         if r.get_type() != drivers.StationCommandType.STC_ST3215_COMMAND:
             continue
         cmd = st3215.CommandReader(r.get_body()); sw = cmd.get_sync_write()
@@ -97,6 +139,8 @@ class FakeStation:
     fail_latch = False
     async def read_buses(self): return E.parse_buses(enc_st3215())
     async def send(self, cmds): await fake_send(None, cmds)
+    async def read_mirrored_followers(self):
+        return E.parse_mirrored_followers(enc_mirroring()) if MIRROR["links"] else []
     async def read_latch(self): return E.decode_latch(LATCH[-1]) if LATCH else None
     async def write_latch(self, data):
         if self.fail_latch:
@@ -225,6 +269,75 @@ async def autopilot_tests():
     await expect_error("move_until refused while latched", A.move_until("elbow", 0.9), "E-STOP is latched")
 
 
+# ---- e-stop while Station mirroring (teleop / teach_mode) drives the follower ----
+def start_mirroring(leader_pos=2600):
+    """Follower linked to the leader; the human holds the leader at leader_pos."""
+    MIRROR["links"]["FOLLOW"] = "LEAD"
+    for m in MODEL["LEAD"].values(): m["pos"] = leader_pos
+    for _ in range(5): enc_st3215()               # follower starts gliding toward the leader
+
+def human_moves_leader(to, reads=40):
+    for m in MODEL["LEAD"].values(): m["pos"] = to
+    for _ in range(reads): enc_st3215()
+
+async def mirroring_tests():
+    print("--- e-stop vs Station mirroring ---")
+    st = FakeStation()
+
+    # proof of the old problem: HOLD without stopping mirroring gets overwritten
+    await E.release(st); reset(); start_mirroring()
+    real = FakeStation.read_mirrored_followers
+    async def blind(self): return []
+    FakeStation.read_mirrored_followers = blind
+    try:
+        await E.trigger(st, "hold", repeats=1)
+    finally:
+        FakeStation.read_mirrored_followers = real
+    before = MODEL["FOLLOW"][2]["pos"]
+    human_moves_leader(2900)
+    check("(old behaviour) HOLD alone is overwritten by mirroring", MODEL["FOLLOW"][2]["pos"] > before + 100,
+          (before, MODEL["FOLLOW"][2]["pos"]))
+
+    # HOLD now stops mirroring and still ends up holding, after Station's async torque-off
+    await E.release(st); reset(); start_mirroring(); MIRROR_CMDS.clear()
+    r = await E.trigger(st, "hold", repeats=2, interval=0.02)
+    check("HOLD stops Station mirroring", r["mirroring_stopped"] == ["FOLLOW"] and not MIRROR["links"], r)
+    check("stop sent in the web-UI shape (source = follower, no targets)",
+          [(c[1], c[2]) for c in MIRROR_CMDS] == [("FOLLOW", [])], MIRROR_CMDS)
+    check("Station's delayed torque-off has landed", not MIRROR["pending_off"])
+    check("follower held after the torque-off (torque on)", all(v == 1 for v in torque("FOLLOW").values()),
+          torque("FOLLOW"))
+    check("leader never stiffened", all(v == 0 for v in torque("LEAD").values()), torque("LEAD"))
+    check("HOLD reported no errors", not r["errors"], r)
+    held = {i: m["pos"] for i, m in MODEL["FOLLOW"].items()}
+    human_moves_leader(2900)
+    check("follower no longer copies the leader", all(abs(MODEL["FOLLOW"][i]["pos"] - p) <= STEP
+                                                      for i, p in held.items()),
+          {i: (p, MODEL["FOLLOW"][i]["pos"]) for i, p in held.items()})
+    check("latched HOLD", (await st.read_latch())["mode"] == "hold")
+
+    # RELAX also stops mirroring and stays limp
+    await E.release(st); reset(); start_mirroring()
+    r = await E.trigger(st, "relax", repeats=2, interval=0.02)
+    await asyncio.sleep(TORQUE_OFF_DELAY_S + 0.05); enc_st3215()
+    check("RELAX stops Station mirroring", r["mirroring_stopped"] == ["FOLLOW"] and not MIRROR["links"], r)
+    check("RELAX leaves every arm limp", all(m["torque"] == 0 for b in MODEL.values() for m in b.values()))
+    p = MODEL["FOLLOW"][2]["pos"]
+    human_moves_leader(2900)
+    check("limp follower doesn't follow the leader", MODEL["FOLLOW"][2]["pos"] == p, (p, MODEL["FOLLOW"][2]["pos"]))
+
+    # no mirroring: nothing extra is sent
+    await E.release(st); reset(); MIRROR_CMDS.clear()
+    r = await E.trigger(st, "hold", repeats=1)
+    check("no mirroring -> no stop command sent", not MIRROR_CMDS and r["mirroring_stopped"] == [], MIRROR_CMDS)
+
+    # teach_mode refuses while latched (Askar's check on top of the latch)
+    await E.release(st); reset()
+    LATCH.append(E.encode_latch(True, "hold"))
+    await expect_error("teach_mode refused while latched", S.teach_mode(True), "E-STOP is latched")
+    await E.release(st)
+
+
 # ---- optional: real Station round trip --------------------------------------
 async def real_station_test(host):
     print(f"--- real Station at {host} ---")
@@ -262,6 +375,7 @@ async def main():
     await estop_tests()
     await server_tests()
     await autopilot_tests()
+    await mirroring_tests()
     if len(sys.argv) > 3:
         await real_station_test(sys.argv[3])
     print(f"\n{'ALL PASSED' if not FAILS else f'{len(FAILS)} FAILED: {FAILS}'}")
