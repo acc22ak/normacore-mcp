@@ -51,7 +51,8 @@ def motor_state(pos, torque, current=0, err=0):
 # Simulated follower servos (off until the motion-engine tests): each st3215 read moves every
 # torqued follower motor up to SIM["step"] steps toward its goal and advances the bus stamp.
 SIM = {"on": False, "step": 300, "stamp": 1, "freeze": False, "reads": 0,
-       "spike": None, "err": None, "blocked": set(), "grip_stop": None}
+       "spike": None, "err": None, "blocked": set(), "grip_stop": None,
+       "read_fail": None}   # {"motor": id, "after": n}: that motor's reads fail (empty state) after n reads
 
 def sim_tick():
     if not SIM["on"]:
@@ -79,7 +80,9 @@ def enc_st3215():
     sim_tick()
     buses = []
     for serial, motors in MODEL.items():
-        ms = [st3215.InferenceState_MotorState(id=i, state=motor_state(m["pos"], m["torque"], m.get("cur", 0), m.get("err", 0)),
+        ms = [st3215.InferenceState_MotorState(id=i, state=(b"" if serial == "FOLLOW" and SIM["read_fail"]
+                                                             and SIM["read_fail"]["motor"] == i and SIM["reads"] >= SIM["read_fail"]["after"]
+                                                             else motor_state(m["pos"], m["torque"], m.get("cur", 0), m.get("err", 0))),
                                                range_min=m["rmin"], range_max=m["rmax"], range_freezed=m["frozen"]) for i, m in motors.items()]
         buses.append(st3215.InferenceState_BusState(bus=st3215.ST3215Bus(serial_number=serial), motors=ms,
                                                     monotonic_stamp_ns=SIM["stamp"]))
@@ -591,7 +594,8 @@ async def self_learning_tests():
     r = await S.start_attempt("move cube from A to B")
     check("start_attempt marks the station time", r["since_ns"] == t0, str(r))
     HISTORY[:] = claude_attempt_history(t0)
-    r = await S.save_attempt_as_skill("a_to_b")
+    scene = [{"color": "red", "x": 0.25, "z": 0.05}, {"color": "blue", "x": 0.22, "z": -0.08}]
+    r = await S.save_attempt_as_skill("a_to_b", scene=scene)
     check("attempt saved as a skill", r["kept_poses"] == 4, str(r))
     check("movement before start_attempt ignored", r["attempt_s"] < 30, r["attempt_s"])
     check("minutes of thinking -> seconds of skill", r["attempt_s"] > 25 and r["skill_s"]["1.0"] < 8 and r["skill_s"]["2.0"] < 4, str(r))
@@ -610,6 +614,8 @@ async def self_learning_tests():
     MODEL["FOLLOW"][8].update(pos=2800, goal=2800)
     r = await S.run_skill("a_to_b")
     check("self skill runs fast in one call", r["completed"] and r["speed_scale"] == 0.5, str(r))
+    check("run reports how much faster it was than the original attempt",
+          r["original_s"] and r["original_s"] > 25 and r["speedup_vs_original"] > 2, (r.get("original_s"), r.get("speedup_vs_original"), r.get("elapsed_s")))
     check("it first glides to the learned start, then ends at the learned end pose",
           abs(MODEL["FOLLOW"][2]["pos"] - 2180) <= 25 and abs(MODEL["FOLLOW"][8]["pos"] - 2200) <= 25,
           (MODEL["FOLLOW"][2]["pos"], MODEL["FOLLOW"][8]["pos"]))
@@ -617,6 +623,7 @@ async def self_learning_tests():
     check("practice ladder applies to self skills", res["status"] == "ok" and res["practice"]["streak"] == 1, str(res))
     ls = {s["name"]: s for s in await S.list_skills()}
     check("list_skills marks it self-learned", ls["a_to_b"]["source"] == "self", str(ls["a_to_b"]))
+    check("skill keeps the scene it was learned in (for the same-spots check)", ls["a_to_b"]["scene"] == scene, ls["a_to_b"].get("scene"))
 
     # re-calibration after learning: start pose + keyframes replay from raw, then get re-based on success
     reset_follower(); MODEL["FOLLOW"][8].update(pos=2800, goal=2800)
@@ -693,7 +700,7 @@ async def teach_demo_tests():
 def reset_follower():
     for m in MODEL["FOLLOW"].values():
         m.update(pos=2000, torque=1, goal=2000, cur=10, err=0)
-    SIM.update(on=True, freeze=False, reads=0, spike=None, err=None, blocked=set(), grip_stop=None)
+    SIM.update(on=True, freeze=False, reads=0, spike=None, err=None, blocked=set(), grip_stop=None, read_fail=None)
 
 def held_at_present():
     """Last goal write to FOLLOW equals current positions, and torque is on (= hold)."""
@@ -777,14 +784,28 @@ async def motion_engine_tests():
     check("dense recording plays with its timing", r1["completed"] and abs(r1["planned_s"] - 1.0) < 0.05, str(r1))
     check("speed_scale 2 halves the plan", abs(r2["planned_s"] - 0.5) < 0.05 and r2["completed"], str(r2))
 
+    # A motor that stops answering mid-move must not be trusted with its old reading: here the elbow
+    # servo's reads fail AND it hits something (current 500). The old reading hides both.
+    reset_follower()
+    SIM["read_fail"] = {"motor": 4, "after": 8}
+    SIM["spike"] = {"motor": 4, "after": 8, "value": 500}
+    r = await S.play_motion([{"joints": {"shoulder": 0.9}, "duration_s": 1.0}])
+    check("motor with no fresh reading stops the motion (no moving blind on one joint)",
+          not r["completed"] and "no fresh reading" in (r["abort_reason"] or ""), str(r)[:300])
+    check("stale-reading stop holds the arm", held_at_present())
+
     # One-call pick / place, end to end on the simulated arm (needs the URDF and a depth calibration file).
     if S.URDF_PATH.exists() and S.REALSENSE_CALIBRATION.exists():
         S.JAW_OFFSET_FILE.write_text('{"local_x_m": -0.02}')
         reset_follower()
-        r = await S.pick(x=0.25, z=0.05, top_m=0.03)
+        def as_result(r):  # pick returns a dict, or [json, photo] when it stops before closing
+            return r if isinstance(r, dict) else json.loads(r[0])
+        r = as_result(await S.pick(x=0.25, z=0.05, top_m=0.03))
         steps = r.get("steps", {})
-        check("pick runs every step up to the close", {"plan", "approach", "open", "jaw_look", "descend", "close"} <= set(steps), str(r)[:400])
-        check("pick on an empty table reports a miss, not a grasp", r["success"] is False and r["failed_step"] == "close", str(r)[:300])
+        check("pick runs every step up to the check before closing", {"plan", "approach", "open", "jaw_look", "descend"} <= set(steps), str(r)[:400])
+        check("without a camera view of the jaws, pick does NOT close blind: stops open for look-and-adjust",
+              r.get("stopped_before_close") is True and r.get("success") is None and "close" not in steps
+              and "couldn't see the jaws" in r.get("why", ""), str(r)[:300])
         check("pick without a camera uses the saved jaw offset", steps["jaw_look"][0]["source"] == "saved", steps.get("jaw_look"))
         check("pick reports the model-only error honestly named", "model_error_cm" in steps["descend"], steps.get("descend"))
         model = S._model("FOLLOW")
@@ -832,7 +853,7 @@ async def motion_engine_tests():
         shift = S._reach_shift(0.3, 0.0)
         check("short reach is corrected by aiming further out", abs(-shift[0] - 0.02) < 1e-9 and shift[2] == 0, str(shift))
         reset_follower()
-        r = await S.pick(x=0.25, z=0.05, top_m=0.03)
+        r = as_result(await S.pick(x=0.25, z=0.05, top_m=0.03))
         check("pick reports the reach error it corrected for", r["steps"]["plan"].get("reach_error_cm") == -1.5, r["steps"].get("plan"))
         S.REACH_MAP_FILE.unlink()
         await S.home()

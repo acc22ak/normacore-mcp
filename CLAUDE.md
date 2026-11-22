@@ -20,6 +20,11 @@ How it works: objects are found in the depth camera's **color** image and placed
 inverse kinematics moves the jaws; the camera checks the jaws before they close. Claude chooses *what* to do and
 judges photos. Claude never guesses joint angles.
 
+0. **Same task again?** `list_skills`: if a skill matches this task (by name/description) and its `scene` matches
+   what `find_objects` shows now (every object within ~1 cm, the arm's measured accuracy), **run it instead of steps
+   1-3**: `run_skill(name)` → `find_objects` to confirm → `report_skill_result(run_id, success)`. The replay is blind
+   (no jaw check before closing), so only on a scene match; otherwise do the normal loop below.
+   Otherwise, `start_attempt(task)` now, so the task can become a skill afterwards.
 1. **Look:** `find_objects` with the arm at `home`. Each object has an id, position, height, `standing`, and
    `reach.how`: the call to use for it. `crowded_by` means another object is within a jaw's width: move that first.
    `reach.reachable: false` means ask the human to move it closer (the arm manages ~39 cm from the base).
@@ -30,6 +35,11 @@ judges photos. Claude never guesses joint angles.
    - unsure about a plan: `pick(..., dry_run=True)` returns it without moving.
 3. **Place:** `place_near(object_id)` (beside a pen's long side, or `end=0/1`) or `place(x, z)`.
 4. **Finish:** `home`, then one `find_objects` to confirm the result, and say what happened in a line or two.
+5. **Auto-skill (after a confirmed success only):** `save_attempt_as_skill(name, description, scene=...)` with the
+   object positions from step 1 (`[{"color", "x", "z"}, ...]`). Name it `<object>_<from>_to_<to>` and say in one line
+   that it's saved. Never save a failed or partly failed task. Next time the same task with the same scene starts at
+   step 0, and the practice ladder speeds it up (2 successes in a row → one speed level up).
+   Every `run_skill` reports `speedup_vs_original`: say it to the human ("done in 9 s, 4x faster than the first time").
 
 **Rules (from the human, 2026-11-22; they override habits elsewhere in this file):**
 - **After a miss, do not go home.** `lift_and_look` (raises the jaws, returns a fresh `find_objects`), then try again.
@@ -227,13 +237,14 @@ again from where it is when it misses."*
 | Calibrations (camera pose, reach, jaw offset) | Done for the camera position of 2026-11-22; redo after moving the camera |
 | Motion engine, e-stop, mirroring guard, Station reconnect | On hardware; engine limits untuned |
 | Color-based `find_objects`, check before closing, `lift_and_look` | Written and tested offline only |
-| Replayable skills + practice ladder, teach mode | Built and offline-tested; **never used on hardware**; optional |
+| Replayable skills + practice ladder, teach mode | Built and offline-tested; **never used on hardware**. Skills are now auto-saved after a successful task (workflow step 5) and replayed when the scene matches (step 0) |
 | Next | Camera at ≥50° looking down; gripper camera in the check before closing; `pick` retrying by itself |
 
 ---
 
-# Optional: replayable skills (not needed for pick-and-place)
-Use this only for a task that is repeated many times with objects on **fixed, marked spots**, where replaying a
+# Replayable skills (auto-saved after a success; replayed only when the scene matches)
+Skills are created automatically after a successful pick-and-place task (workflow steps 0 and 5); this section
+has the details. Use a replay only for a task that is repeated with objects on **fixed, marked spots**, where replaying a
 recorded motion is faster than looking each time. It replays joint positions without looking, so it fails as soon as
 anything is off its spot; the workflow at the top has no such requirement. Nothing below changes the rules at the top.
 (Three sections further down apply to **all** work, not only skills: "Keep improving the code on your own",

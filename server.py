@@ -1021,7 +1021,8 @@ def _safety_config() -> M.SafetyConfig:
         per_motor_current=per, gripper_id=GRIPPER_ID,
         track_err_max=float(os.environ.get("TRACK_ERR_MAX", "0.10")),
         track_err_ticks=int(os.environ.get("TRACK_ERR_TICKS", "5")),
-        stale_s=float(os.environ.get("STALE_STATE_S", "0.5")))
+        stale_s=float(os.environ.get("STALE_STATE_S", "0.5")),
+        stale_reading_ticks=int(os.environ.get("STALE_READING_TICKS", "3")))
 
 
 def _soft_limits() -> dict[int, tuple[float, float]]:
@@ -1361,13 +1362,17 @@ async def start_attempt(task: str, bus: str | None = None) -> dict:
 
 
 @mcp.tool()
-async def save_attempt_as_skill(name: str, description: str = "", overwrite: bool = False) -> dict:
+async def save_attempt_as_skill(name: str, description: str = "", overwrite: bool = False,
+                                scene: list | None = None) -> dict:
     """SELF-LEARNING step 2: turn your successful attempt (since start_attempt) into a fast skill.
 
     Keeps only the poses where the arm rested, merges poses that lie on a straight line
     (gripper open/close moments are always kept), and times each move from SKILL_BASE_VEL.
     The thinking time and the step-by-step crawl disappear, so a minutes-long attempt becomes
     a skill of a few seconds. Only call this after verifying with `look` that the task succeeded.
+    scene: where the objects were when the task started (e.g. [{"color": "red", "x": 0.25, "z": 0.05}, ...]
+    from the first find_objects). A replay is blind, so run the skill again only when find_objects shows
+    the objects within ~1 cm of this scene.
     """
     try:
         attempt = json.loads(ATTEMPT_FILE.read_text(encoding="utf-8"))
@@ -1410,6 +1415,7 @@ async def save_attempt_as_skill(name: str, description: str = "", overwrite: boo
                         "ranges": {str(j): [m["range_min"], m["range_max"]] for j, m in last.items()}},
         "start_pose": {str(j): v for j, v in poses[0][0].items()},
         "start_raw": {str(j): int(v) for j, v in poses[0][1].items()},
+        "scene": scene,
         "keyframes": keyframes,
         "practice": {"level": 0, "streak": 0, "speed_scale": L.SPEED_LEVELS[0]},
         "status": "new",
@@ -1443,6 +1449,7 @@ async def list_skills() -> list[dict]:
                     "status": s.get("status"), "version": s.get("version"),
                     "speed_scale": (s.get("practice") or {}).get("speed_scale"),
                     "streak": (s.get("practice") or {}).get("streak"), "stats": s.get("stats"),
+                    "scene": s.get("scene"),
                     "source": (s.get("source") or {}).get("type"),
                     "duration_s": (s.get("source") or {}).get("duration_s") or (s.get("source") or {}).get("skill_s_at_1x")})
     return out
@@ -1573,7 +1580,11 @@ async def run_skill(name: str, speed_scale: float | None = None, bus: str | None
                 "counted_as": "failure", "practice": skill["practice"]}
     _pending_runs[run_id] = {"skill": skill, "record": record, "rebased": rebased}
     _save_json(_skill_path(name), skill)  # persists a needs_check status
+    original_s = (skill.get("source") or {}).get("attempt_s")
     return {**report, "run_id": run_id, "speed_scale": speed, "speed_note": speed_note,
+            "original_s": original_s,
+            "speedup_vs_original": round(original_s / report["elapsed_s"], 1)
+            if original_s and report.get("elapsed_s") else None,
             "calibration_changed": record["calibration_changed"],
             "next": "look at the result, then report_skill_result(run_id, success, note)"}
 
@@ -2429,6 +2440,10 @@ async def pick(object_id: int | None = None, x: float | None = None, z: float | 
                       **({"why": "the depth camera couldn't see the jaws to check them: not closing blind"}
                          if unchecked else {}),
                       "elapsed_s": round(time.monotonic() - t0, 1)}
+            # Logged like every other pick (CLAUDE.md: every pick/place is in runs.jsonl), so look-and-adjust
+            # attempts count in the success rates too.
+            _log_action("pick", {"object": obj and {k: obj[k] for k in ("color", "center", "size_cm") if k in obj},
+                                 "target": [round(gx, 4), round(gz, 4)], "top_m": top}, result)
             return [json.dumps(result), await _jaw_photo(serial)]
         grip = await _close_gripper(serial)
         log_steps["close"] = grip

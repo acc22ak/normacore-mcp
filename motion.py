@@ -283,6 +283,11 @@ class SafetyConfig:
     track_err_max: float = 0.10                  # norm; untuned default, measure on the arm
     track_err_ticks: int = 5                     # consecutive ticks over the limit before aborting
     stale_s: float = 0.5                         # no new state for this long -> abort
+    # A motor whose reads keep failing keeps its last real reading (server.read_buses marks it
+    # stale_reading). Its current/error/position are then old values that can't show a collision,
+    # and the bus stamp keeps moving because the other motors answer. Abort after this many
+    # stale ticks in a row (one dropped read is fine).
+    stale_reading_ticks: int = 3
 
 
 @dataclass
@@ -291,6 +296,7 @@ class SafetyMonitor:
     over_count: dict[int, int] = field(default_factory=dict)
     gripper_blocked: bool = False
     max_track_err: dict[int, float] = field(default_factory=dict)
+    stale_count: dict[int, int] = field(default_factory=dict)
 
     def limit_for(self, j: int) -> int:
         return self.cfg.per_motor_current.get(j, self.cfg.current_limit)
@@ -305,6 +311,13 @@ class SafetyMonitor:
         if state_age_s > self.cfg.stale_s:
             return f"robot state is {state_age_s:.2f} s old (limit {self.cfg.stale_s} s); not moving blind"
         for j, m in motors.items():
+            if m.get("stale_reading"):
+                self.stale_count[j] = self.stale_count.get(j, 0) + 1
+                if self.stale_count[j] >= self.cfg.stale_reading_ticks:
+                    return (f"servo {j} ({m['joint']}): no fresh reading for {self.stale_count[j]} ticks in a row; "
+                            "its current and errors can't be checked, so not moving blind (check its cable)")
+                continue  # an old reading is not evidence of anything: don't judge it
+            self.stale_count[j] = 0
             bits = m["error_status"] & ~IGNORED_STATUS_BITS
             if bits:
                 return f"servo {j} ({m['joint']}) reports error status 0x{m['error_status']:02X}"

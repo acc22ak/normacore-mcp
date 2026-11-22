@@ -116,5 +116,16 @@ check("steps_per_s floor 300", M.steps_per_s(0.0, 2000) == 300)
 check("steps_per_s cap 3300 (Station max_speed)", M.steps_per_s(5.0, 2000) == 3300)
 check("steps_per_s scales with velocity", M.steps_per_s(0.5, 2000) == 1500)
 
+# --- a motor whose reads keep failing (server marks it stale_reading) ---
+cfgs = M.SafetyConfig(stale_reading_ticks=3)
+mon = M.SafetyMonitor(cfgs)
+stale = motors(j2_stale_reading=True)
+r = [mon.check(stale, cmd, 0) for _ in range(3)]
+check("one or two stale reads are tolerated, the third in a row stops", r[0] is None and r[1] is None
+      and "no fresh reading" in (r[2] or "") and "j2" in (r[2] or ""), r)
+mon = M.SafetyMonitor(cfgs)
+mon.check(stale, cmd, 0); mon.check(stale, cmd, 0); mon.check(motors(), cmd, 0)
+check("stale counter resets on a fresh reading", mon.check(stale, cmd, 0) is None)
+
 print(f"\n{'ALL PASSED' if not FAILS else f'{len(FAILS)} FAILED: {FAILS}'}")
 sys.exit(1 if FAILS else 0)
