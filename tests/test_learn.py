@@ -67,7 +67,7 @@ shape = [(round(p[0][2], 2), round(p[0][8], 2)) for p in poses]
 check("steps on a line merge; gripper close is one move", shape == [(0.3, 0.9), (0.6, 0.9), (0.6, 0.3), (0.45, 0.3)], shape)
 kf = L.timed_keyframes(poses, base_vel=0.25)
 total = sum(k["duration_s"] for k in kf)
-check("attempt ~27 s -> skill ~6 s at speed 1.0", att_s > 25 and 5.5 < total < 7.0, (att_s, total))
+check("attempt ~27 s -> skill ~8 s at speed 1.0 (minimum-jerk easing)", att_s > 25 and 7.0 < total < 8.8, (att_s, total))
 check("keyframes carry raw positions", all("raw" in k for k in kf))
 corner = [({1: 0.0}, {}), ({1: 0.5}, {}), ({1: 0.0}, {})]   # go out and come back: must keep the turn
 check("a real turn is kept, not merged", len(L.simplify_path(corner, gripper_id=8)) == 3)

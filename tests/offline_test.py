@@ -18,6 +18,10 @@ os.environ["CAMERAS_FILE"] = os.path.join(_TMP, "cameras.json")  # never write i
 os.environ["SKILLS_DIR"] = os.path.join(_TMP, "skills")
 os.environ["RUNS_FILE"] = os.path.join(_TMP, "runs.jsonl")
 os.environ["ATTEMPT_FILE"] = os.path.join(_TMP, "attempt.json")
+os.environ["JAW_OFFSET_FILE"] = os.path.join(_TMP, "jaw_offset.json")
+os.environ["REACH_MAP_FILE"] = os.path.join(_TMP, "reach_map.json")
+os.environ["FRAMES_DIR"] = os.path.join(_TMP, "frames")
+os.environ["REALSENSE_URL"] = "ws://127.0.0.1:1"   # no depth camera in tests: pick falls back to the saved jaw offset
 import server as S
 from PIL import Image as PI
 from target.gen_python.protobuf.drivers.st3215 import st3215
@@ -394,9 +398,11 @@ async def main():
 
     tools = sorted(t.name for t in await S.mcp.list_tools())
     print("tools:", tools)
-    check("teach_mode back (optional), no separate recording tool (18 tools)",
-          "teach_mode" in tools and "skill_from_history" not in tools and len(tools) == 18, len(tools))
+    check("teach_mode back (optional), no separate recording tool (31 tools)",
+          "teach_mode" in tools and "skill_from_history" not in tools and len(tools) == 31, len(tools))
     check("motion tools registered", {"go_to", "play_motion", "stop_motion"} <= set(tools))
+    check("depth + one-call manipulation tools registered",
+          {"find_objects", "depth_point", "tip_position", "pick", "place", "place_near", "home", "find_markers", "calibrate_gripper_marker"} <= set(tools))
     print(f"\n{'ALL PASSED' if not FAILS else f'{len(FAILS)} FAILED: {FAILS}'}")
     sys.exit(1 if FAILS else 0)
 
@@ -504,6 +510,7 @@ async def learning_tests():
         m["rmin"] = 1000
 
     runs = [json.loads(l) for l in open(os.environ["RUNS_FILE"], encoding="utf-8")]
+    runs = [r for r in runs if "tool" not in r]      # pick/place share the file; this counts skill runs
     check("every run logged in runs.jsonl", len(runs) == 6 and all("practice_after" in x for x in runs), len(runs))
 
     # --- speed override can't skip the practice ladder ---
@@ -694,6 +701,11 @@ def held_at_present():
     return all(MODEL["FOLLOW"][j]["goal"] == MODEL["FOLLOW"][j]["pos"] for j, _ in goals) and \
         all(m["torque"] == 1 for m in MODEL["FOLLOW"].values())
 
+def to_norm_now(j):
+    return S.to_norm(MODEL["FOLLOW"][j]["pos"], 1000, 3000)
+
+import numpy as np
+
 async def motion_engine_tests():
     import anyio, time as _t
     print("\n--- motion engine (simulated servos) ---")
@@ -764,6 +776,68 @@ async def motion_engine_tests():
     r2 = await S.play_motion(rec, speed_scale=2.0)
     check("dense recording plays with its timing", r1["completed"] and abs(r1["planned_s"] - 1.0) < 0.05, str(r1))
     check("speed_scale 2 halves the plan", abs(r2["planned_s"] - 0.5) < 0.05 and r2["completed"], str(r2))
+
+    # One-call pick / place, end to end on the simulated arm (needs the URDF and a depth calibration file).
+    if S.URDF_PATH.exists() and S.REALSENSE_CALIBRATION.exists():
+        S.JAW_OFFSET_FILE.write_text('{"local_x_m": -0.02}')
+        reset_follower()
+        r = await S.pick(x=0.25, z=0.05, top_m=0.03)
+        steps = r.get("steps", {})
+        check("pick runs every step up to the close", {"plan", "approach", "open", "jaw_look", "descend", "close"} <= set(steps), str(r)[:400])
+        check("pick on an empty table reports a miss, not a grasp", r["success"] is False and r["failed_step"] == "close", str(r)[:300])
+        check("pick without a camera uses the saved jaw offset", steps["jaw_look"][0]["source"] == "saved", steps.get("jaw_look"))
+        check("pick reports the model-only error honestly named", "model_error_cm" in steps["descend"], steps.get("descend"))
+        model = S._model("FOLLOW")
+        down = model.approach_dir({j: S.to_norm(MODEL["FOLLOW"][j]["pos"], 1000, 3000) for j in range(1, 9)})
+        check("pick comes down with the jaws vertical", down[1] < -0.97, str(down))
+        r = await S.pick(x=0.25, z=0.05, top_m=0.03, wrist_roll_deg=60)
+        roll = S.to_norm(MODEL["FOLLOW"][7]["pos"], 1000, 3000)
+        check("pick holds the requested wrist roll", abs(roll - S._wrist_roll_target(60)) < 0.02, roll)
+        r = await S.place(x=0.22, z=-0.08)
+        check("place completes", r["success"], str(r)[:300])
+        check("place applies the saved jaw offset", r["steps"]["jaw_offset"]["source"] == "saved", r["steps"].get("jaw_offset"))
+        logged = [json.loads(l) for l in open(os.environ["RUNS_FILE"], encoding="utf-8")]
+        check("pick and place are logged to runs.jsonl", [x.get("tool") for x in logged if x.get("tool")][:3] == ["pick", "pick", "place"],
+              [x.get("tool") for x in logged])
+        r = await S.home()
+        check("home completes after place", r["success"], str(r)[:300])
+        # Look-and-adjust mode: stop open at the object, nudge over the top, close.
+        reset_follower()
+        r = await S.pick(x=0.25, z=0.05, top_m=0.04, close=False)
+        info = json.loads(r[0])
+        check("pick(close=False) stops with the jaws open at the object", info.get("stopped_before_close") is True
+              and to_norm_now(8) > 0.7, r[0][:200])
+        y_low = S._model("FOLLOW").grasp_point({j: to_norm_now(j) for j in range(1, 9)}, S.GRASP_REACH_M)
+        r = await S.nudge_jaws(right_cm=2.0)
+        info = json.loads(r[0])
+        after = S._model("FOLLOW").grasp_point({j: to_norm_now(j) for j in range(1, 9)}, S.GRASP_REACH_M)
+        check("nudge_jaws moves the jaws ~2 cm sideways and back to the same height",
+              info["success"] and abs(float(np.hypot(after[0] - y_low[0], after[2] - y_low[2])) - 0.02) < 0.006
+              and abs(after[1] - y_low[1]) < 0.006, (r[0], y_low.tolist(), after.tolist()))
+        r = await S.close_and_lift()
+        info = json.loads(r[0])
+        check("close_and_lift on nothing reports a miss and re-opens", info["success"] is False and to_norm_now(8) > 0.7, r[0][:200])
+        await S.home()
+
+        check("a standing object 30 cm out is a plain pick", S._reach_info(0.3, 0.0, True)
+              == {"reachable": True, "jaw_angle_deg": 90, "how": "pick(object_id)"}, S._reach_info(0.3, 0.0, True))
+        check("a flat object is picked with the look-and-adjust steps", "close=False" in S._reach_info(0.3, 0.0, False)["how"])
+        check("an object 45 cm out is reported out of reach", S._reach_info(0.45, 0.0, True)["reachable"] is False)
+        # A reach map shifts the aim outward when the real jaws land short.
+        S.REACH_MAP_FILE.write_text(json.dumps({"points": [{"r_m": 0.2, "error_m": -0.01}, {"r_m": 0.4, "error_m": -0.03}]}))
+        check("reach error is interpolated between probes", abs(S._reach_error(0.3) + 0.02) < 1e-9, S._reach_error(0.3))
+        check("reach error is held flat beyond the probes", S._reach_error(0.5) == -0.03 and S._reach_error(0.1) == -0.01)
+        check("a short reach brings the reachable limit closer", S._reach_info(0.40, 0.0, True)["reachable"] is False
+              and S._reach_info(0.38, 0.0, True)["reachable"] is True, (S._reach_info(0.40, 0.0, True), S._reach_info(0.38, 0.0, True)))
+        shift = S._reach_shift(0.3, 0.0)
+        check("short reach is corrected by aiming further out", abs(-shift[0] - 0.02) < 1e-9 and shift[2] == 0, str(shift))
+        reset_follower()
+        r = await S.pick(x=0.25, z=0.05, top_m=0.03)
+        check("pick reports the reach error it corrected for", r["steps"]["plan"].get("reach_error_cm") == -1.5, r["steps"].get("plan"))
+        S.REACH_MAP_FILE.unlink()
+        await S.home()
+    else:
+        print("SKIP pick/place (no URDF or depth calibration file)")
 
     reset_follower(); MIRROR.update(present=True); MIRROR["links"]["FOLLOW"] = "LEAD"
     await expect_error("fast moves refused while mirroring is on", S.go_to({"shoulder": 0.6}), "turn mirroring off")

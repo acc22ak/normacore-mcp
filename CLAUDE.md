@@ -4,28 +4,78 @@
 Hackathon project for the **NormaCore challenge: "AI-powered robot control: integrate the
 Station API into Codex or Claude so it can control the robot by looking through the cameras."**
 
-`server.py` is an MCP server (Python, `mcp<2` FastMCP API). It connects to a running
-NormaCore **Station** over TCP :8888 and exposes the tools `look`, `list_cameras`,
-`get_robot_state`, `move_joints`, `nudge_joints`, `set_gripper`, `hold` and `relax`.
-`README.md` has the setup steps for people. This file is context for agents.
+`server.py` is an MCP server (Python, `mcp<2` FastMCP API) that connects to a running NormaCore **Station** over
+TCP :8888 and to the RealSense bridge (`realsense-bridge/`, ws :8890). It lets Claude see the table and move the
+ElRobot follower arm. `README.md` has the setup steps for people. This file is context for agents.
 
-**Your role:** you are the robot's operator *and* its developer. You learn tasks **by yourself** (no human
-demonstration needed), turn your own successes into fast skills, practise them until they're fast, and keep improving
-skills (data) and tools (code). Priorities, in order: **safety, then simplicity for the human, then speed.**
+**Your role:** you are the robot's operator *and* its developer. Priorities, in order:
+**safety, then simplicity for the human, then speed.**
 
-## Default flow: the human just names a task
-When asked to do a task ("move the cube from A to B"), handle everything yourself:
-1. `list_skills`. If a skill matches with status `ok`/`flaky`/`needs_check`: **one** `look("desk")` to confirm the
-   object is on its spot → `run_skill(name)` → **one** `look("desk")` → `report_skill_result(run_id, success, note)`.
-   Tell the human the result and the new speed in one line.
-2. If no skill matches: **learn it** (Learning protocol §1): `start_attempt(task)`, solve it slowly with both cameras,
-   verify, `save_attempt_as_skill(name)`. Then tell the human it's learned and how fast the skill will be.
-3. If a fast run fails: say why in one line, finish the task in slow camera-guided mode, and if your slow fix differs
-   from the skill, save it as a new version (`start_attempt` before the fix, `save_attempt_as_skill(..., overwrite=True)`).
-4. "Practise X" / "get faster": loop step 1. If X has a reverse skill (e.g. `a_to_b` and `b_to_a`), alternate them so
-   no human has to reset the scene; learn the reverse first if it's missing. Stop on 2 failures in a row and report.
-Performance habits: don't think between waypoints (the skill runs in one call); one look before and one after a fast
-run; prefer `look("desk")` (one image) and use `look("gripper")` only for fine alignment; keep replies to the human short.
+**One workflow.** Ordinary requests ("put the figure next to the pen") are done with the pick-and-place loop
+below. Everything else in this file (joint-level tools, replayable skills, teach mode) is for calibration, recovery
+or special cases, and each section says so. If two parts of this file ever disagree, this section wins: fix the other.
+
+## The workflow: pick and place with the depth camera
+How it works: objects are found in the depth camera's **color** image and placed with the calibrated table plane;
+inverse kinematics moves the jaws; the camera checks the jaws before they close. Claude chooses *what* to do and
+judges photos. Claude never guesses joint angles.
+
+1. **Look:** `find_objects` with the arm at `home`. Each object has an id, position, height, `standing`, and
+   `reach.how`: the call to use for it. `crowded_by` means another object is within a jaw's width: move that first.
+   `reach.reachable: false` means ask the human to move it closer (the arm manages ~39 cm from the base).
+2. **Pick:**
+   - standing object in easy reach: `pick(object_id)`.
+   - flat, small or far object, and after any miss: `pick(object_id, close=False)` → read the zoomed photo →
+     `nudge_jaws(right_cm, toward_camera_cm)` until the object is between the jaw tips → `close_and_lift()`.
+   - unsure about a plan: `pick(..., dry_run=True)` returns it without moving.
+3. **Place:** `place_near(object_id)` (beside a pen's long side, or `end=0/1`) or `place(x, z)`.
+4. **Finish:** `home`, then one `find_objects` to confirm the result, and say what happened in a line or two.
+
+**Rules (from the human, 2026-11-22; they override habits elsewhere in this file):**
+- **After a miss, do not go home.** `lift_and_look` (raises the jaws, returns a fresh `find_objects`), then try again.
+- **If a photo doesn't clearly show where the object is, `lift_and_look`.** With the jaws low the gripper hides the
+  object and what's left of the picture misleads: guessing from it pushed a figure 8 cm across the table.
+- **Always come at objects from above.** The tools do: `pick` approaches above the object's top, `nudge_jaws` goes
+  up, across, down. Don't replace them with joint moves near an object.
+- **`home` only at the end of a task** (~30 s each), or when the arm blocks the camera's view of the table.
+
+**Reading a `pick` result:**
+- `steps.plan.jaw_ends_clear_object_top_by_cm` must be positive; `jaw_angle_deg_below_horizontal` under 45 means a
+  shallow, less reliable grasp (object far out).
+- `steps.jaw_look[].source`: `camera` = the sideways jaw offset was measured live; `saved` = last saved value used;
+  `none` = no correction (expect a miss).
+- `steps.verify[]`: the check before closing. `seen: false` = the camera couldn't tell and the grasp went ahead
+  unchecked. `failed_step: "verify"` = the jaws were off the object and it did not close.
+- `model_error_cm` is encoder-vs-model only. It is **not** the distance to the object.
+- Every `pick` / `place` / `close_and_lift` is appended to `data/runs.jsonl`; the frames used are kept in
+  `data/frames/` (last 60). Debug misses from those, not from memory.
+
+**What limits it today (measured 2026-11-22):** the arm lands within ~1 cm after corrections; that grabs a standing
+figure but a figure lying flat needs the look-and-adjust steps. The depth camera sat at 25° above the table: from
+there the gripper hides the object and positions along the view are ~2 cm uncertain per cm of height error.
+**Mount it looking down at 50° or steeper**, then redo both calibrations below.
+
+## Calibrations (redo when the depth camera or the arm base moves)
+| What | How | Stored in |
+|---|---|---|
+| Joint ranges | Station web UI: Auto Calibrate → **Save** (human). Never recalibrate on your own. | Station |
+| Camera pose + joint zeros | Move the arm through ~7 poses (incl. low/far), `arm_fit.py capture` each, `arm_fit.py fit <dir> --save`, then `arm_fit.py check <dir> <out>` and **look at the pictures** | `../realsense-bridge/calibration.json` (`arm_fit`; the viewer adopts it) |
+| Reach error | `calibrate_reach(side)` with that side of the table clear (~1.5 min) | `data/reach_map.json` |
+| Sideways jaw offset | Measured by `pick` on its own whenever it sees the jaw tips | `data/jaw_offset.json` |
+
+Frame: metres, base at origin, **+x forward (toward the depth camera), y up, +z = the robot's right = the left of
+the depth camera's image**. The same frame as station-viewer's 3D view, which uses the same joint scales and zeros.
+
+## Tool map
+| Use | Tools |
+|---|---|
+| **Everyday** | `find_objects`, `pick`, `nudge_jaws`, `close_and_lift`, `lift_and_look`, `place`, `place_near`, `home` |
+| Looking closer | `depth_point` (3D point under an image position), `tip_position`, `look` (Station's USB cameras: the gripper camera) |
+| Calibration | `calibrate_reach`; `arm_fit.py` (CLI) |
+| Safety | `hold` (freeze), `relax` (torque off: the arm **drops**; emergencies only), `stop_motion`, `estop.py` (separate program) |
+| Low-level, for recovery and calibration only | `get_robot_state`, `move_joints`, `nudge_joints`, `set_gripper`, `go_to`, `play_motion` |
+| Optional: replayable skills | `start_attempt`, `save_attempt_as_skill`, `list_skills`, `run_skill`, `report_skill_result`, `teach_mode` |
+| Legacy, unused by the workflow | `find_markers`, `calibrate_gripper_marker`, `list_cameras`, `set_camera_role` (roles only matter for `look`) |
 
 Upstream: https://github.com/norma-core/norma-core (MIT). We import its pure-python
 client (`software/station/shared/station_py`) and the generated protobuf readers/writers
@@ -41,7 +91,8 @@ path comes from `NORMA_CORE_REPO`, which must be the repo root because those imp
     **manually**: Reset → move every joint by hand through its full range → Save (freeze). The follower (12 V) can use Auto Calibrate.
 - 2× serial bus servo driver boards (Waveshare: jumper must be on **B** = USB) in printed enclosures.
 - Powered 7-port USB 3.0 hub (needed for cameras), USB-C data cables.
-- Desk/table camera: any UVC webcam, fixed position looking at the workspace and the gripper.
+- Table camera: an Intel RealSense D435 on the far side of the table, looking back at the arm (via `realsense-bridge/`,
+  which needs `sudo` on macOS, so the human starts it). No separate desk webcam is in use.
 - MacBook Air (Apple Silicon) runs Station. **Station has no Windows build** (macOS/Linux only).
 
 ## Motor IDs (ElRobot)
@@ -59,18 +110,18 @@ path comes from `NORMA_CORE_REPO`, which must be the repo root because those imp
 SO-101 arms use ids 1–6 with 6 = gripper (`GRIPPER_MOTOR_ID=6`). The joint names above are
 our own labels, so check them on the real arm.
 
-### Joint direction map (FILL THIS IN on the real robot)
+### Joint direction map (measured 2026-11-21 on follower 5B8E115950; details in data/exploration.md)
 Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future runs know it:
 | joint | +norm moves… | safe range notes |
 |---|---|---|
-| base_yaw | ? | |
-| shoulder | ? | |
-| upper_arm_roll | ? | |
-| elbow | ? | |
-| forearm_roll | ? | |
-| wrist_pitch | ? | |
-| wrist_roll | ? | |
-| gripper | ? (open or close?) | |
+| base_yaw | turns the arm to its left (~9° per 0.05) | 1024–3072 raw; candy is to the right of home |
+| shoulder | leans the arm forward, gripper cam tilts down | home ≈ 0.01 (folded, near min) |
+| upper_arm_roll | not measured yet | home ≈ 0.50 |
+| elbow | **−** unfolds the forearm (gripper up), + folds it | home ≈ 0.94 (folded, near max); sags ~0.02 under gravity |
+| forearm_roll | rolls the forearm, scene turns clockwise in the gripper cam | almost full-turn range, no real stops. **Keep within ±0.25 of 0.54**: gripper-cam cable loops round the wrist |
+| wrist_pitch | points the gripper down | home ≈ 0.46 = gripper level |
+| wrist_roll | rolls the gripper, scene turns clockwise in the gripper cam | almost full-turn range, no real stops. **Keep within ±0.25 of 0.54** (camera cable) |
+| gripper | **+ opens**, − closes | |
 
 ## Station API facts (learned from the upstream source)
 - Run: `station --web --tcp` → web UI on :8889, normfs TCP API on :8888. Config is `station.yaml`.
@@ -100,10 +151,11 @@ Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future ru
   ≥ 100 steps (viewer's `MIN_CALIBRATED_RANGE`). Station's own mirroring adds a small `safety_margin` that we don't.
 
 ## Unverified on hardware (check these on the real robot, then move them to Learned facts)
-- Which gripper direction is open.
-- Engine defaults are untuned guesses: `MAX_VEL_NORM` 0.5, `TRACK_ERR_MAX` 0.10 × 5 ticks, `MOTION_ACCEL` 50. Measure `max_tracking_error`,
-  `late_ticks` and `elapsed_s` vs `planned_s` from real `play_motion` reports, then tune (raising limits needs the human's OK, §5).
-- Whether 20 Hz is reachable: each tick does one command write + one state read over TCP; `late_ticks` shows if it isn't.
+- Engine limits are still untuned defaults: `MAX_VEL_NORM` 0.5, `TRACK_ERR_MAX` 0.10 × 5 ticks, `MOTION_ACCEL` 50
+  (they ran on hardware all of 2026-11-22; raising them needs the human's OK, §5).
+- The over-the-top `nudge_jaws`, `lift_and_look`, the check before closing in `pick`, and the color-based
+  `find_objects` on **standing** objects have only run in simulation / on saved frames (written after the arm was
+  unplugged on 2026-11-22). Watch the first runs.
 - Whether pressing Esc in Claude Code sends an MCP cancel (the library would then cancel the call and the engine holds the arm;
   verified in mcp/shared/session.py, but the client side is unverified). Until checked, treat `relax`/power as the real e-stop.
 - Web UI: motor-ID change page (set IDs one servo at a time) and **Auto Calibrate → Save** per bus
@@ -134,29 +186,21 @@ Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future ru
   mirroring, bus resolution, sync-write batching) and `software/ai/smolvla_py/scripts/run_policy.py` (normvla → policy → goal writes).
 
 ## Safety rules for agents driving the arm
-1. Always `look` + `get_robot_state` before moving. After every move, `look` again. Each `look` label says how old
-   its frame is; a frame marked **STALE** (older than `FRAME_MAX_AGE_S`, or the camera reported a disconnect) is not
-   the current scene. Never plan or verify a move with it: stop and tell the human the camera needs checking.
-   Use camera **roles**: `look("desk")` for the workspace, `look("gripper")` for fine alignment. Station doesn't know
-   which camera is which (queues are `/<station>/usbvideo/<md5 of device id>`), so at session start call `list_cameras`;
-   if roles are missing or `role_problems` is non-empty, `look` at all cameras, identify them (gripper cam shows the jaws
-   and its view moves with the arm; desk cam is fixed and shows the whole table), call `set_camera_role`, and tell the human.
-   Roles are saved by `camera_id` (USB `vendor:product:serial`), not queue id: on Linux the device id ends in the USB
-   device number, so every replug creates a new queue. Queues of unplugged cameras (no frame for `CAMERA_GONE_S`, or
-   a disconnect/capture-end event) are hidden; `list_cameras(include_gone=True)` shows them.
-2. Only ever command the **follower** bus (`FOLLOWER_BUS`). Never write to the leader.
-3. Small steps: `nudge_joints` ≤ 0.05 when near objects/table; the server also clamps each call to `MAX_STEP_NORM` (0.15).
-4. Don't move uncalibrated joints or joints reporting `error_status != 0`.
-5. `relax` = torque off, and the arm falls. Use `hold` to freeze in place instead, unless something is jammed/overloaded.
-6. If mirroring (teleop) targets the follower, don't move it: two writers fight over the arm and Station won't stop
-   them. `server.py` enforces this: `move_joints`/`nudge_joints`/`set_gripper`/`hold` refuse while the follower is a
-   mirroring target or when the bus is a leader (fails closed if `inference/mirroring` can't be read; allowed if the
-   queue doesn't exist, i.e. no mirroring driver). `relax` is always allowed. Turn mirroring off with
-   `teach_mode(on=False)` (or the human does it on the follower's bus card in the web UI). The leader bus is never
-   commanded; it only drives the follower through Station's mirroring.
-7. `teach_mode(on=True)` makes the follower jump to the leader's pose, so it refuses if any joint differs by more than
-   `TEACH_MAX_POSE_DIFF` (0.2) unless `force=True`, and while the e-stop is latched. `teach_mode(on=False)` waits for
-   Station's torque-off, then holds (the arm may sag briefly: the human should support it).
+1. Only ever command the **follower** bus (`FOLLOWER_BUS`). Never write to the leader.
+2. `get_robot_state` at the start of a session: every joint calibrated, `range_frozen` true, no `error_status`.
+   Don't move uncalibrated joints or joints reporting an error.
+3. Keep objects and hands out of the arm's path; the human is the one near the power. `hold` freezes the arm in
+   place. `relax` = torque off, and the arm falls: only when something is jammed or overloaded.
+4. Near an object, use the jaw tools (`pick`, `nudge_jaws`, `close_and_lift`, `place`). Joint-level moves there are
+   how things get pushed off the table.
+5. If mirroring (teleop) targets the follower, don't move it: two writers fight over the arm and Station won't stop
+   them. `server.py` enforces this (every motion tool refuses while the follower is a mirroring target; fails closed
+   if `inference/mirroring` can't be read). Turn mirroring off with `teach_mode(on=False)` or in the web UI.
+6. `teach_mode(on=True)` makes the follower jump to the leader's pose, so it refuses if any joint differs by more than
+   `TEACH_MAX_POSE_DIFF` (0.2) unless `force=True`, and while the e-stop is latched.
+7. Keep the Mac on AC power and close spare browser tabs showing the 3D view. On battery the machine throttles;
+   motions then run slower (the engine's clock never jumps ahead), and planning takes many seconds.
+8. A camera frame marked **STALE** by `look` is not the current scene: don't plan from it.
 
 ## Dev notes
 - Offline test without hardware: `python tests/offline_test.py . <norma-core path>` (monkeypatches queue reads/sends with simulated frames).
@@ -170,40 +214,35 @@ Measure with `nudge_joints` ±0.05 plus `look`, then record it here so future ru
 
 ---
 
-# Strategy (why we win)
-Other teams will likely have Claude guess raw joint angles from images, which fails on stage. We keep
-geometry out of the LLM: **Claude solves a task once, slowly, with both cameras, turns its own success into a
-fast skill, and practises until it's fast. No human demonstration, no hand-coded angles.**
-Pitch: *"Just tell it what to do. It figures it out with its eyes, then teaches itself to do it fast. Or show it once
-with the leader arm."*
+# Strategy
+Geometry stays out of the LLM. Code does the measuring (color detection, table plane, inverse kinematics, jaw-tip
+detection); Claude chooses what to do, reads photos, and decides when something looks wrong.
+Pitch: *"Tell it what to move where. It finds the things, picks them from above, checks its own grip, and tries
+again from where it is when it misses."*
 
-# Roadmap (update the Status column as work lands)
-| P | Component | File(s) | What | Status |
-|---|---|---|---|---|
-| P0 | Station I/O | `station_io.py` | split connection/state/camera/command code out of `server.py` | todo |
-| P0 | Fast playback engine | `motion.py` (pure logic), `server.py` (`go_to`, `play_motion`, `stop_motion`) | ~20 Hz streaming of eased keyframes or dense recordings, `speed_scale`, per-joint velocity cap (`MAX_VEL_NORM`), soft limits (`data/limits.json`); aborts + holds on servo error bits (voltage ignored like Station), over-current (=collision), tracking error, stale state, stop/hold/relax, cancellation (shielded hold); gripper over-current = grasp (stops squeezing) | done, offline-tested (simulated servos); **not yet tried on hardware** |
-| P0 | Mirroring guard + optional teach mode | `server.py` | every motion tool refuses while the follower is mirrored or the bus is a leader; `teach_mode(on/off)` lets the leader arm drive the follower and marks the start/end of a demonstration attempt (no separate recording step) | done, offline-tested; **not yet tried on hardware** |
-| P0 | Poses | `poses.py`, `data/poses.json` | `save_pose`, `list_poses`, `go_to_pose` | todo |
-| P0 | Self-learning | `learn.py` (pure), `server.py` | `start_attempt(task)` + `save_attempt_as_skill(name)`: Claude's own slow, verified attempt -> rest poses -> straight-line merge (gripper changes kept) -> timed keyframes + raw + start pose + calibration snapshot | done, offline-tested; **not yet tried on hardware** |
-| P1 | Skills + practice ladder | `server.py`, `data/skills/*.json`, `data/runs.jsonl` | `list_skills`, `run_skill` (fast, one call), `report_skill_result`; ladder 0.5 → 0.75 → 1.0 → … after **2 successes in a row**, one level down on failure; engine abort = failure; calibration change → replay from raw at ≤0.5 + `needs_check` | done, offline-tested; **not yet tried on hardware** |
-| P1 | Drift handling | `motion.py`, `poses.py`, `data/compensation.json` | calibration snapshot + raw positions in skills/poses, replay-from-raw when ranges changed, goal-vs-present tracking error, per-joint compensation, `check_drift` (home pose + landmark). See Learning protocol §6. `range_frozen` + warning in `get_robot_state` already done | partly done |
-| P1 | Vision | `vision.py` | `look(grid=True)` labelled A1–C3 grid on the desk cam; `find_objects(color)` HSV blobs → pixel + cell | todo |
-| P2 | Pick anywhere | `poses.py` | taught `above_<cell>` poses for 9 cells, bilinear blend → `pick(cell)` / `place(cell)` | todo |
-| P2 | E-stop | `estop.py`, `server.py` (`estop_latch`, `guard_motion`, `_run_motion`), `autopilot.py` | separate process + own station connection: Space = hold, X/Esc = relax, R R = release. Writes the servos directly + a latch in Station's `estop/state` queue; every move and motion tick checks it; no re-torque after RELAX. Tests: `tests/test_estop.py` | done, offline-tested + latch round trip on a real Station binary; **not yet tried on the arm** |
-| P3 | Demo agent/UI | `agent.py`, `ui/` | Claude API agent with the same tools + page with camera feeds, reasoning stream, STOP button | stretch |
-| P3 | SmolVLA | upstream `software/ai/smolvla_py` | train a policy on recorded demos for one fast skill; Claude stays the planner | stretch |
-
-Final tool surface: perception (`look`, `list_cameras`, `set_camera_role`, `find_objects`, `gripper_status`, `get_robot_state`), motion (`go_to`,
-`play_motion`, `stop_motion`, `go_to_pose`, `nudge_joints`, `grasp`, `release`), planned (`edit_skill`, `pick`, `place`), learning
-(`start_attempt`, `save_attempt_as_skill`, optional `teach_mode`, `save_pose`), skills (`list_skills`, `run_skill`, `report_skill_result`), safety (`hold`, `relax`).
-**If a tool you need for the protocol below doesn't exist yet, build it (roadmap order) rather than improvising with raw joint moves.**
+# Status (2026-11-22)
+| Part | State |
+|---|---|
+| Pick-and-place loop (the workflow above) | Works on hardware for standing objects within ~36 cm; flat or far objects need the look-and-adjust steps |
+| Calibrations (camera pose, reach, jaw offset) | Done for the camera position of 2026-11-22; redo after moving the camera |
+| Motion engine, e-stop, mirroring guard, Station reconnect | On hardware; engine limits untuned |
+| Color-based `find_objects`, check before closing, `lift_and_look` | Written and tested offline only |
+| Replayable skills + practice ladder, teach mode | Built and offline-tested; **never used on hardware**; optional |
+| Next | Camera at ≥50° looking down; gripper camera in the check before closing; `pick` retrying by itself |
 
 ---
 
-# Learning protocol: how Claude learns and improves skills
+# Optional: replayable skills (not needed for pick-and-place)
+Use this only for a task that is repeated many times with objects on **fixed, marked spots**, where replaying a
+recorded motion is faster than looking each time. It replays joint positions without looking, so it fails as soon as
+anything is off its spot; the workflow at the top has no such requirement. Nothing below changes the rules at the top.
+(Three sections further down apply to **all** work, not only skills: "Keep improving the code on your own",
+"Evidence over assumptions" and "Guardrails for self-modification".)
+
+## Learning protocol: how Claude learns and improves skills
 "Skill" below means a **robot skill** (a JSON file in `data/skills/`), not a Claude Code skill.
 
-## 1. Learning a new task by yourself (default)
+### 1. Learning a task by yourself
 No human demonstration needed: you solve the task once, slowly, and your own successful attempt becomes the skill.
 1. `start_attempt(task)` marks the start (station time), so nothing before it is recorded.
 2. **Solve it carefully**: look with both cameras, move with `go_to` / `move_joints` / `nudge_joints` / `set_gripper`.
@@ -315,7 +354,7 @@ and design for correcting it.
    ≤0.03 norm, with evidence: run ids). It is learned data, not a calibration change.
 4. **Fold repeated corrections into the skill.** If the same visual correction was needed in ≥2 of the last 3 runs,
    bake it into the keyframes as a new skill version (protocol §3), with the run ids as evidence in the changelog.
-5. **Drift check.** At session start and after any failure that looks systematic: `go_to_pose("home")`, `look`, and
+5. **Drift check.** At session start and after any failure that looks systematic: `home`, `find_objects`, and
    compare against the stored reference image/description of home and a fixed table landmark (e.g. a tape mark).
    If it moved, decide which drifted: the camera (landmark moved in image, arm didn't), the calibration (arm pose
    differs, landmark same) or the table. Tell the human what you found.
@@ -369,6 +408,19 @@ capped until the skill's status is `ok`;
 - 2026-11-21: `st3215/inference` updates ~400 Hz per bus on hardware (~530 entries/s with 2 buses), not 10–20 Hz. Reading it 1:1 is ~1 ms/entry, so long history reads use the read `step` (server-side stride; verified: 75 s in 1.6 s with step 25).
 - 2026-11-21: On Linux, Station's camera unique_id is `vid:pid:bus:devnum` (decimal), and devnum changes on every replug, so each replug makes a new `/<station>/usbvideo/<md5>` queue; old queues stay, ending with `ET_DEVICE_RECORDING_END` (not `ET_DEVICE_DISCONNECTED`). Linux also needs a udev rule giving the user rw on UVC USB devices, or Station logs `Failed to open device ... -3` (libusb access denied).
 <!-- format: - YYYY-MM-DD: fact (evidence) -->
+- 2026-11-22: Real picking session, 4 figures: 3 picked and put by the pen, 1 pushed out of reach. First-try success only on a standing figure in the centre with the live jaw look working. What made the others work: reach correction, an approach that clears the object's top, and adjusting by eye from a zoomed photo before closing (`data/runs.jsonl`).
+- 2026-11-22: The real jaws land short along the reach direction: -2.5 cm at 27 cm, -3.0 cm at 32 cm (`calibrate_reach`, measured from the side where reach is across the camera's view; the 37 cm probe read -6.5 cm and was rejected as too large, the 22 cm probe misread the tips). `pick`/`place` aim further out by `data/reach_map.json`. The sideways jaw offset showed up again in those probes (-1.5 to -2.8 cm), so it is a property of the arm, not of the camera calibration.
+- 2026-11-22: With the depth camera 25 deg above the table, a jaw tip's position along the camera's view moves ~2 cm per cm of unknown jaw height, and the gripper hides the object it is over. Photos taken with the jaws low were misread three times. Only the sideways error is trusted at that angle (`_jaw_error_at_object`); `lift_and_look` exists for the rest.
+- 2026-11-22: A sideways jaw move with a 1.5 cm hop pushed a 4 cm figure and a box ~8 cm, to the edge of reach. Sideways moves now go up over the object's top, across, and down (`nudge_jaws`).
+- 2026-11-22: On battery with a busy browser the motion loop's ticks arrived seconds late; it followed the wall clock, so the goal jumped ahead and the arm lunged into the object ("shoulder is 0.749 away from its target"). The motion clock now advances at most two periods per tick: a slow machine gives a slow motion. Grasp planning also froze the event loop for up to 6 s, which coincided with the Station connection going dead (reads empty until a new connection); planning now runs in a thread and `read_buses` reconnects once.
+- 2026-11-22: A motor whose read fails arrives with `error` set and an empty register dump (`st3215/src/state.rs`: `state = envelope.data`); parsed naively that is position 0. The viewer drew the joint at the end of its range for a frame (the "glitch"), and the server would have fed it to the motion checks. Both now hold the last real reading (`arm-pose.ts`, `read_buses`).
+- 2026-11-22: Color-image object detection (`depth.find_objects_rgb`: wide-median table model, shadow rejection, table-plane positions, depth only for height) finds the lying minifigure the depth-only detector missed and repeats positions within ~1 mm across arm poses on the saved frames (tests/test_depth.py). Not yet tried on standing objects or on the live camera.
+- 2026-11-22: `place` asked the gripper to "release" to 0.45 while holding a wide figure at 0.56, i.e. narrower than the object: it didn't let go. Release now opens at least 0.2 wider than the grip.
+- 2026-11-22: The arm model puts the point between the jaws ~2 cm to the side of where it really is: on the three saved calibration frames with the jaws pointing down (p2, p3_low, p6) the real jaw midpoint is at -22.6 / -18.5 / -20.7 mm along the jaw closing direction, i.e. the model's "centre" sits on one real jaw tip (`arm_fit.py check`; tests/test_depth.py). Cause not known (roll-joint zeros set by eye, or the gripper differs from the URDF): **unverified**. `pick` now measures it live (`depth.find_jaw_tips`) and `data/jaw_offset.json` holds the fallback. Only the sideways part (across the camera's view) is trusted: along the view two methods disagreed by 1-2 cm.
+- 2026-11-22: The old aim point came from the gripper's world-axis bounding box and moved up to 14 mm in the gripper's own frame with tilt, roll and opening. It is now a fixed point on the wrist roll axis (`arm_model.TIP_LOCAL`, tests/test_arm_model.py).
+- 2026-11-22: IK is exact inside reach (0.0 mm, tilt held) and joint-space carries don't dip toward the table (lowest gripper point stayed >= 8 cm on 11 cm-high carries), but from an awkward start pose it stalled far from the target in 3 of 30 random starts: `_ik` retries from `IK_SEEDS`. Forearm and wrist roll now have hard limits 0.29-0.79 (cable). A joint-space descent drifted ~6 mm sideways over 8 cm: descents now go through 3 straight-line points.
+- 2026-11-22: Refitting the calibration with roll-joint zeros included changed the wrist roll zero by 19 deg without improving the fit error and only halved the visible jaw offset, so it was **not** saved: the saved frames don't pin the roll zeros down (all 7 have the rolls at the same values). Capture frames with different roll values before trying again.
+- 2026-11-22: Depth noise on the bare table is 2.2 mm (1 sigma) per frame at 320x240; `find_objects` and `depth_point` now use the median of 5 frames (`DEPTH_FRAMES`). The bridge's nearest-value pooling is left as it is: a median there would invent points between an object and the table at edges.
 - 2026-11-21: Unfrozen calibration ranges keep widening during use (st3215 port_meta.rs:407-423); auto-calibration zeroes the servo Position Offset (calibrator.rs:423-424); mirroring deadband is 20 steps ≈1.8° (mirror.rs:190-195).
 - 2026-11-21: Station has built-in leader→follower mirroring, controllable via `STC_MOTOR_MIRRORING_COMMAND`; nothing arbitrates between it and our writes (motors-mirroring source, ADR 0009).
 - 2026-11-21: Leader bus is ~5 V, so web-UI Auto Calibrate is disabled (<7.0 V); calibrate the leader manually (St3215BusCalibrationPage.tsx).

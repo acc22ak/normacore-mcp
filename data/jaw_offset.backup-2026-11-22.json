@@ -1,0 +1,23 @@
+{
+  "local_x_m": -0.0165,
+  "recent_local_x_m": [
+    -0.0114,
+    -0.016,
+    -0.017,
+    -0.022,
+    -0.018,
+    -0.01,
+    -0.001,
+    -0.017,
+    -0.02,
+    -0.007
+  ],
+  "updated": "2026-11-22T14:37:23",
+  "last": {
+    "source": "camera",
+    "sideways_cm": 0.8,
+    "jaw_gap_cm": 3.8,
+    "local_x_cm": -0.7
+  },
+  "note": "real jaw midpoint minus the arm model's, along the jaw closing direction; measured by pick with the depth camera (median of the last 10)"
+}

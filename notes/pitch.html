@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tell it what to move where</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400..600&display=swap" rel="stylesheet">
+<style>
+/* Direction B, "point cloud". Deep slate; the depth ramp (warm near → rose → cool far) is the only colour. */
+:root{--bg:#1d232c;--ink:#e9edf2;--mute:#94a0ae;--faint:#5d6876;--line:rgba(233,237,242,.14);--near:#f2b566;--mid:#c98fb0;--far:#7d93f0;
+  --plane:rgba(233,237,242,.04);--plane2:rgba(233,237,242,.07);--hair:#3a4351;--yel:#f2b566;--obj:#c98fb0}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#12161c;overflow:hidden}
+body{font-family:"Instrument Sans",system-ui,sans-serif;color:var(--ink)}
+.stage{position:absolute;left:50%;top:50%;width:1600px;height:900px}
+.slide{position:absolute;inset:0;background:var(--bg);padding:96px 112px 88px;display:none;flex-direction:column;overflow:hidden}
+.slide.on{display:flex}
+.bleed{position:absolute;inset:0;width:100%;height:100%}
+.bleed.dim{opacity:.55}
+h1{position:relative;font-weight:400;font-size:104px;line-height:.98;letter-spacing:-.035em;margin:0;max-width:11em}
+h2{font-weight:400;font-size:56px;line-height:1.04;letter-spacing:-.028em;margin:0 0 52px;max-width:19em}
+h2.short{margin-bottom:24px}
+h3{font-weight:500;font-size:26px;margin:0 0 18px}
+p{margin:0}
+.lead{position:relative;font-size:27px;line-height:1.45;color:var(--mute);max-width:32em;margin-top:30px}
+.muted{font-size:23px;line-height:1.5;color:var(--mute);max-width:34em}
+.hero{position:absolute;left:112px;bottom:104px;right:112px}
+.side{position:relative;max-width:660px;margin-top:auto;margin-bottom:auto}
+.side .muted{margin-top:28px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:72px}
+.two.big ul li{font-size:34px;color:var(--ink);padding:18px 0}
+.two.big h3{color:var(--mute);font-size:24px}
+.two.pics{gap:40px;align-items:start}
+.two.pics img{max-height:560px;object-fit:cover}
+.three-up{grid-template-columns:repeat(3,1fr)!important}
+.three-up b{font-size:34px!important}
+.three-up span{font-size:24px!important}
+.defs b{font-size:30px!important}
+.defs span{font-size:24px!important}
+td{font-size:32px!important;padding:24px 32px 24px 0!important}
+.side h2{font-size:64px;margin:0}
+.two.wide{grid-template-columns:1fr 1.05fr;align-items:center}
+.three{display:grid;grid-template-columns:1fr 1fr .8fr;gap:36px;align-items:start}
+ul{margin:0;padding:0;list-style:none}
+.two ul li,.small li{font-size:25px;line-height:1.4;color:var(--mute);padding:14px 0;border-top:1px solid var(--line)}
+.small li{font-size:22px}
+figure{margin:0}
+figure img{width:100%;display:block}
+figcaption{font-size:18px;color:var(--faint);margin-top:12px;line-height:1.4}
+.fig{flex:1;min-height:0;display:flex;align-items:center}
+.fig svg{width:100%;height:auto;max-height:100%;display:block;color:var(--ink);font-family:"Instrument Sans",sans-serif}
+.defs li,.grid6 li{display:grid;gap:6px;padding:18px 0;border-top:1px solid var(--line)}
+.defs b,.grid6 b{font-weight:500;font-size:25px}
+.defs span,.grid6 span{font-size:21px;line-height:1.45;color:var(--mute)}
+.grid6{display:grid;grid-template-columns:repeat(3,1fr);column-gap:56px;row-gap:12px}
+table{border-collapse:collapse;width:100%}
+td{font-size:24px;line-height:1.35;padding:17px 32px 17px 0;border-top:1px solid var(--line);vertical-align:top;color:var(--mute)}
+td:last-child{color:var(--ink)}
+.nums{display:grid;grid-template-columns:repeat(4,1fr);gap:48px;margin-bottom:72px}
+.nums b{display:block;font-weight:400;font-size:100px;letter-spacing:-.045em;line-height:1;background:linear-gradient(90deg,var(--near),var(--mid) 60%,var(--far));-webkit-background-clip:text;background-clip:text;color:transparent}
+.nums span{display:block;font-size:21px;line-height:1.4;color:var(--mute);margin-top:14px}
+.slide.frame{padding:0}
+.slide.frame iframe{width:100%;height:100%;border:0;background:var(--bg)}
+.count{position:absolute;right:48px;bottom:36px;font-size:15px;color:var(--faint);font-variant-numeric:tabular-nums}
+.notes{position:fixed;left:0;right:0;bottom:0;background:#e9edf2;color:#1d232c;font:18px/1.5 "Instrument Sans",sans-serif;padding:14px 24px;display:none;max-height:34vh;overflow:auto;z-index:9}
+.notes.on{display:block}
+.help{position:fixed;right:14px;top:10px;font-size:13px;color:#4a5462;z-index:8}
+
+/* point-cloud field behind every slide */
+.stage{background:var(--bg)}
+.bgfield{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.slide{background:transparent!important;z-index:1}
+.slide.frame{background:var(--bg)!important}
+/* slide 5 */
+.trick{display:grid;grid-template-columns:1fr 1.05fr;gap:40px;align-items:center;height:100%}
+.trick h2{font-size:64px;margin:0}
+.trick svg{width:100%;height:auto;max-height:700px}
+/* slide 6 */
+.pickanim{flex:1;min-height:0;display:grid;grid-template-columns:300px 1fr;gap:40px;align-items:center}
+.pickanim ol{list-style:none;margin:0;padding:0;counter-reset:s}
+.pickanim li{counter-increment:s;font-size:34px;line-height:1;padding:16px 0 16px 22px;color:var(--faint);border-left:2px solid transparent;transition:color .3s,border-color .3s}
+.pickanim li::before{content:counter(s);font-size:18px;margin-right:16px;color:var(--faint);vertical-align:middle}
+.pickanim li.done{color:var(--mute)}
+.pickanim li.on{color:var(--ink);border-left-color:var(--near)}
+.pickanim svg{width:100%;height:auto;max-height:640px}
+.calib{display:grid;grid-template-columns:repeat(3,1fr);gap:56px;margin-top:20px}
+.calib svg{width:100%;height:auto;display:block}
+.calib figcaption{margin-top:24px;display:grid;gap:6px}
+.calib figcaption b{font-weight:500;font-size:32px;color:var(--ink)}
+.calib figcaption span{font-size:24px;color:var(--mute)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:96px;margin-top:20px}
+.split h3{font-size:26px;color:var(--mute);font-weight:500;margin:0 0 40px}
+.ics{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.ics figure{display:grid;gap:22px;justify-items:start}
+.ics figcaption{font-size:28px;line-height:1.25;color:var(--ink);margin:0}
+.rules svg{max-height:300px}
+.safe figure{display:grid;justify-items:start;gap:8px;padding-top:60px}
+.calib.safe svg{width:96px!important;height:96px!important}
+.ics svg{width:76px;height:76px}
+.split{margin-top:70px!important}
+.nums{margin-top:70px}
+.nums>div>svg{display:block;margin-bottom:26px;height:64px;width:auto}
+</style>
+</head>
+<body>
+<div class="help">Arrow keys to move · N for speaker notes · F for full screen</div>
+<div class="stage" id="stage">
+<section class="slide dark" data-notes="Hi, we're [team]. The challenge was to let an AI drive the robot by looking through cameras. Our answer: you tell Claude what to move where, in plain words, and it does the rest on a real arm. What you see is the arm the way our depth camera sees it. (~15 s)">
+<canvas data-scene="arm" class="bleed"></canvas>
+<div class="hero"><h1>Tell it what to move where.</h1>
+<p class="lead">Claude drives a real robot arm by looking.</p></div>
+</section>
+
+<section class="slide " data-notes="The key design decision. Language models are great at deciding and at judging pictures, and bad at geometry. If you let one guess joint angles, things get pushed off the table. So code does all the measuring and Claude never touches a joint angle. (~20 s)">
+<h2>LLMs can't guess joint angles.</h2>
+<div class="split">
+  <div><h3>Code measures</h3>
+    <div class="ics">
+      <figure><svg class="ic" viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="#f2b566" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/><path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4"/></svg><figcaption>where things are</figcaption></figure>
+      <figure><svg class="ic" viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="#f2b566" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h7"/><path d="M7.5 20v-6l5.5-6 5 4v3"/><circle cx="7.5" cy="14" r="1.3"/><circle cx="13" cy="8" r="1.3"/><path d="M16.5 15v3M19.5 15v3"/></svg><figcaption>how to move</figcaption></figure>
+      <figure><svg class="ic" viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="#f2b566" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12h4l2.5-6 3.5 12 2.5-6H22"/></svg><figcaption>if it's held</figcaption></figure>
+    </div></div>
+  <div><h3>Claude decides</h3>
+    <div class="ics">
+      <figure><svg class="ic" viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="#7d93f0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5 18.5 10l-5.5 1.6L10.6 17z"/><path d="m13 11.6 4.5 5"/></svg><figcaption>what to pick</figcaption></figure>
+      <figure><svg class="ic" viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="#7d93f0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15.5 3.5a4.5 4.5 0 0 0-4.3 5.8L4 16.5 7.5 20l7.2-7.2a4.5 4.5 0 0 0 5.8-4.3l-3 1.8-2.6-.9-.9-2.6z"/></svg><figcaption>which tool</figcaption></figure>
+      <figure><svg class="ic" viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="#7d93f0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg><figcaption>when it's wrong</figcaption></figure>
+    </div></div>
+</div>
+</section>
+
+<section class="slide " data-notes="How it fits together: one loop. You say what. Claude picks a tool on our MCP server. The server moves the arm through NormaCore Station. The depth camera's images come back through a small bridge, and the server turns them into photos and numbers for Claude. The room sees the same thing as a live 3D view. (~20 s)">
+<h2 class="short">One loop: look, decide, move</h2>
+<div class="fig"><svg viewBox="0 0 1400 600" role="img" aria-label="You tell Claude. Claude calls a tool on our MCP server. The server moves the arm and gets the depth camera's view back, then hands photos and numbers to Claude." fill="none" font-family="Instrument Sans, sans-serif">
+  <!-- lanes -->
+  <path id="ln0" d="M196 290H330" stroke="#5d6876" stroke-width="1.5"/>
+  <path id="lo1" d="M506 262H646" stroke="#f2b566" stroke-opacity=".35" stroke-width="1.5"/>
+  <path id="lo2" d="M876 262H1112" stroke="#f2b566" stroke-opacity=".35" stroke-width="1.5"/>
+  <path id="lb1" d="M1110 452H930Q906 452 906 428V344Q906 322 884 322H878" stroke="#7d93f0" stroke-opacity=".35" stroke-width="1.5"/>
+  <path id="lb2" d="M644 322H508" stroke="#7d93f0" stroke-opacity=".35" stroke-width="1.5"/>
+  <g>
+    <circle r="3.5" fill="#e9edf2" opacity=".8"><animateMotion dur="1.8s" begin="0.0s" repeatCount="indefinite"><mpath href="#ln0"/></animateMotion></circle><circle r="3.5" fill="#e9edf2" opacity=".8"><animateMotion dur="1.8s" begin="-0.6s" repeatCount="indefinite"><mpath href="#ln0"/></animateMotion></circle><circle r="3.5" fill="#e9edf2" opacity=".8"><animateMotion dur="1.8s" begin="-1.2s" repeatCount="indefinite"><mpath href="#ln0"/></animateMotion></circle>
+    <circle r="4" fill="#f2b566"><animateMotion dur="1.6s" begin="0.0s" repeatCount="indefinite"><mpath href="#lo1"/></animateMotion></circle><circle r="4" fill="#f2b566"><animateMotion dur="1.6s" begin="-0.4s" repeatCount="indefinite"><mpath href="#lo1"/></animateMotion></circle><circle r="4" fill="#f2b566"><animateMotion dur="1.6s" begin="-0.8s" repeatCount="indefinite"><mpath href="#lo1"/></animateMotion></circle><circle r="4" fill="#f2b566"><animateMotion dur="1.6s" begin="-1.2000000000000002s" repeatCount="indefinite"><mpath href="#lo1"/></animateMotion></circle>
+    <circle r="4" fill="#f2b566"><animateMotion dur="2.2s" begin="0.0s" repeatCount="indefinite"><mpath href="#lo2"/></animateMotion></circle><circle r="4" fill="#f2b566"><animateMotion dur="2.2s" begin="-0.44s" repeatCount="indefinite"><mpath href="#lo2"/></animateMotion></circle><circle r="4" fill="#f2b566"><animateMotion dur="2.2s" begin="-0.88s" repeatCount="indefinite"><mpath href="#lo2"/></animateMotion></circle><circle r="4" fill="#f2b566"><animateMotion dur="2.2s" begin="-1.32s" repeatCount="indefinite"><mpath href="#lo2"/></animateMotion></circle><circle r="4" fill="#f2b566"><animateMotion dur="2.2s" begin="-1.76s" repeatCount="indefinite"><mpath href="#lo2"/></animateMotion></circle>
+    <circle r="4" fill="#7d93f0"><animateMotion dur="2.4s" begin="0.0s" repeatCount="indefinite"><mpath href="#lb1"/></animateMotion></circle><circle r="4" fill="#7d93f0"><animateMotion dur="2.4s" begin="-0.4s" repeatCount="indefinite"><mpath href="#lb1"/></animateMotion></circle><circle r="4" fill="#7d93f0"><animateMotion dur="2.4s" begin="-0.8s" repeatCount="indefinite"><mpath href="#lb1"/></animateMotion></circle><circle r="4" fill="#7d93f0"><animateMotion dur="2.4s" begin="-1.2000000000000002s" repeatCount="indefinite"><mpath href="#lb1"/></animateMotion></circle><circle r="4" fill="#7d93f0"><animateMotion dur="2.4s" begin="-1.6s" repeatCount="indefinite"><mpath href="#lb1"/></animateMotion></circle><circle r="4" fill="#7d93f0"><animateMotion dur="2.4s" begin="-2.0s" repeatCount="indefinite"><mpath href="#lb1"/></animateMotion></circle>
+    <circle r="4" fill="#7d93f0"><animateMotion dur="1.6s" begin="0.0s" repeatCount="indefinite"><mpath href="#lb2"/></animateMotion></circle><circle r="4" fill="#7d93f0"><animateMotion dur="1.6s" begin="-0.4s" repeatCount="indefinite"><mpath href="#lb2"/></animateMotion></circle><circle r="4" fill="#7d93f0"><animateMotion dur="1.6s" begin="-0.8s" repeatCount="indefinite"><mpath href="#lb2"/></animateMotion></circle><circle r="4" fill="#7d93f0"><animateMotion dur="1.6s" begin="-1.2000000000000002s" repeatCount="indefinite"><mpath href="#lb2"/></animateMotion></circle>
+  </g>
+  <text x="576" y="244" text-anchor="middle" font-size="18" fill="#f2b566">moves</text>
+  <text x="576" y="352" text-anchor="middle" font-size="18" fill="#7d93f0">sees</text>
+  <text x="994" y="244" text-anchor="middle" font-size="15" fill="#5d6876">Station</text>
+  <text x="994" y="478" text-anchor="middle" font-size="15" fill="#5d6876">bridge</text>
+
+  <!-- you -->
+  <g stroke="#e9edf2" stroke-dasharray="0.01 9" stroke-linecap="round" stroke-width="4.5"><circle cx="130" cy="252" r="30"/><path d="M74 372Q76 296 130 296Q184 296 186 372"/></g>
+  <text x="130" y="168" text-anchor="middle" font-size="19" fill="#94a0ae">“Put the figures in the box.”</text>
+  <text x="130" y="430" text-anchor="middle" font-size="22" fill="#e9edf2">You</text>
+  <!-- claude -->
+  <g stroke="#e9edf2" stroke-dasharray="0.01 9" stroke-linecap="round" stroke-width="4.5"><rect x="344" y="228" width="152" height="104" rx="8"/><path d="M318 350H522"/></g>
+  <g stroke="#c98fb0" stroke-width="5" stroke-linecap="round"><path d="M368 262H440"/><path d="M368 284H468"/></g>
+  <text x="420" y="430" text-anchor="middle" font-size="22" fill="#e9edf2">Claude</text>
+  <!-- our server -->
+  <g stroke="#e9edf2" stroke-dasharray="0.01 9" stroke-linecap="round" stroke-width="4.5"><rect x="652" y="196" width="220" height="190" rx="20"/></g>
+  <g stroke="#7d93f0" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M694 290Q718 266 742 290Q718 314 694 290Z"/><circle cx="718" cy="290" r="6"/></g>
+  <g stroke="#e9edf2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M760 308L790 270L794 308Z"/></g>
+  <g stroke="#f2b566" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M832 268L850 274V288Q850 302 832 310Q814 302 814 288V274Z"/></g>
+  <text x="762" y="430" text-anchor="middle" font-size="22" fill="#e9edf2">Our MCP server</text>
+  <!-- arm -->
+  <path d="M1100 262H1340" stroke="#5d6876" stroke-width="1.5"/>
+  <g stroke="#e9edf2" stroke-dasharray="0.01 9" stroke-linecap="round" stroke-width="4.5"><path d="M1140 262V214L1206 156L1272 210V232"/><path d="M1262 232V256M1282 232V256"/><path d="M1118 262H1162"/></g>
+  <g fill="#f2b566"><rect x="1304" y="244" width="12" height="18" rx="2"/><circle cx="1310" cy="238" r="5"/></g>
+  <text x="1220" y="126" text-anchor="middle" font-size="22" fill="#e9edf2">Arm</text>
+  <!-- depth camera -->
+  <g stroke="#7d93f0" stroke-width="1.2" stroke-dasharray="3 7" opacity=".7"><path d="M1192 436L1150 268"/><path d="M1252 436L1326 268"/></g>
+  <g stroke="#e9edf2" stroke-dasharray="0.01 9" stroke-linecap="round" stroke-width="4.5"><rect x="1176" y="434" width="92" height="34" rx="9"/><path d="M1222 468V540M1222 492L1194 548M1222 492L1250 548"/></g>
+  <text x="1222" y="584" text-anchor="middle" font-size="22" fill="#e9edf2">Depth camera</text>
+</svg></div>
+</section>
+
+<section class="slide " data-notes="Seeing. We find objects in the colour image, as things that differ from the table around them, then place them on the table plane we calibrated. Depth only gives the height, because depth alone missed a lying minifigure. Each object comes back with the exact tool call to use for it. (~20 s)">
+<h2>Colour finds it. Depth measures it.</h2>
+<div class="two pics">
+  <figure><img src="img/find-latest.jpg" alt="Colour image from the depth camera with numbered boxes around the objects"></figure>
+  <figure><img src="img/find-latest-depth-b.png" alt="The same frame as distance, warm near and cool far"></figure>
+</div>
+</section>
+
+<section class="slide dark" data-notes="The trick. Our arm model puts the point between the jaws about two centimetres off. Instead of chasing that error, pick looks at the real jaw tips with the same depth camera that found the object, and aims the jaws it sees at the object it sees. The camera's errors and the model's errors cancel out. (~25 s)">
+<div class="trick">
+  <h2>The model is 2 cm off. We aim what the camera sees.</h2>
+  <svg id="trickSvg" viewBox="0 0 760 640" fill="none" font-family="Instrument Sans, sans-serif" aria-label="The model thinks the jaws are centred; the camera sees them 2 cm to the side, and they move over the object.">
+    <line x1="60" y1="560" x2="720" y2="560" stroke="#5d6876" stroke-width="2"/>
+    <g transform="translate(380 560)"><g class="obj"><rect x="-18" y="-80" width="36" height="80" rx="4" fill="#f2b566"/><circle cx="0" cy="-94" r="13" fill="#f2b566"/></g></g>
+    <g id="tGhost" opacity=".55" stroke-dasharray="7 8"><g id="tGhostJ">
+      <rect x="-14" y="-236" width="28" height="64" rx="4" stroke="#e9edf2" stroke-width="2" fill="none"/>
+      <rect x="-74" y="-176" width="148" height="52" rx="6" stroke="#e9edf2" stroke-width="2" fill="none"/>
+      <line class="fl" x1="-60" y1="-124" x2="-60" y2="0" stroke="#e9edf2" stroke-width="3" stroke-linecap="round"/>
+      <line class="fr" x1="60" y1="-124" x2="60" y2="0" stroke="#e9edf2" stroke-width="3" stroke-linecap="round"/>
+    </g></g>
+    <g id="tJaws">
+      <rect x="-14" y="-236" width="28" height="64" rx="4" stroke="#e9edf2" stroke-width="3" fill="#1d232c"/>
+      <rect x="-74" y="-176" width="148" height="52" rx="6" stroke="#e9edf2" stroke-width="3" fill="#1d232c"/>
+      <line class="fl" x1="-60" y1="-124" x2="-60" y2="0" stroke="#e9edf2" stroke-width="9" stroke-linecap="round"/>
+      <line class="fr" x1="60" y1="-124" x2="60" y2="0" stroke="#e9edf2" stroke-width="9" stroke-linecap="round"/>
+    </g>
+    <g id="tCam"><rect x="640" y="40" width="84" height="32" rx="8" stroke="#e9edf2" stroke-width="2.4"/><circle cx="668" cy="56" r="7" stroke="#7d93f0" stroke-width="2"/><circle cx="696" cy="56" r="7" stroke="#7d93f0" stroke-width="2"/></g>
+    <g id="tSight" stroke="#7d93f0" stroke-width="1.3" stroke-dasharray="3 7" opacity="0"><path id="tS1"/><path id="tS2"/><path id="tS3"/></g>
+    <g id="tDots"></g>
+    <g id="tDim" opacity="0" stroke="#f2b566" stroke-width="2"><path id="tDimP"/><text id="tDimT" fill="#f2b566" stroke="none" font-size="22" text-anchor="middle">2 cm</text></g>
+    <text id="tGhostL" font-size="18" fill="#94a0ae">model</text>
+    <text id="tCamL" x="682" y="104" font-size="18" fill="#7d93f0" text-anchor="middle">camera</text>
+  </svg>
+</div>
+</section>
+
+<section class="slide " data-notes="One pick call does all of this by itself: approach above, look at the real jaws and correct, go straight down, check, and only then close until the motor current says it's held. If the check fails, it doesn't close. (~25 s)">
+<h2 class="short">One call: look, correct, check, close.</h2>
+<div class="pickanim">
+  <ol id="pSteps"><li>Approach</li><li>Look</li><li>Down</li><li>Check</li><li>Close</li><li>Lift</li></ol>
+  <svg id="pickSvg" viewBox="0 0 900 600" fill="none" font-family="Instrument Sans, sans-serif" aria-label="Animation of one pick: approach above the object, look at the real jaws and shift, go straight down, check, close, lift.">
+    <line x1="60" y1="540" x2="840" y2="540" stroke="#5d6876" stroke-width="2"/>
+    <g id="pObj" transform="translate(420 540)"><g class="obj"><rect x="-18" y="-80" width="36" height="80" rx="4" fill="#f2b566"/><circle cx="0" cy="-94" r="13" fill="#f2b566"/></g></g>
+    <g id="pJaws">
+      <rect x="-14" y="-236" width="28" height="64" rx="4" stroke="#e9edf2" stroke-width="3" fill="#1d232c"/>
+      <rect x="-74" y="-176" width="148" height="52" rx="6" stroke="#e9edf2" stroke-width="3" fill="#1d232c"/>
+      <line class="fl" x1="-60" y1="-124" x2="-60" y2="0" stroke="#e9edf2" stroke-width="9" stroke-linecap="round"/>
+      <line class="fr" x1="60" y1="-124" x2="60" y2="0" stroke="#e9edf2" stroke-width="9" stroke-linecap="round"/>
+    </g>
+    <g><rect x="740" y="30" width="84" height="32" rx="8" stroke="#e9edf2" stroke-width="2.4"/><circle cx="768" cy="46" r="7" stroke="#7d93f0" stroke-width="2"/><circle cx="796" cy="46" r="7" stroke="#7d93f0" stroke-width="2"/></g>
+    <g id="pSight" stroke="#7d93f0" stroke-width="1.3" stroke-dasharray="3 7" opacity="0"><path id="pS1"/><path id="pS2"/></g>
+    <g id="pDots"></g>
+    <g id="pTick" opacity="0"><circle cx="560" cy="300" r="26" stroke="#f2b566" stroke-width="3"/><path d="M547 300l9 10l17-20" stroke="#f2b566" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g id="pHeld" opacity="0"><text x="560" y="560" font-size="20" fill="#94a0ae">held</text></g>
+  </svg>
+</div>
+</section>
+
+<section class="slide frame" data-notes="Here's the whole job in 3D with the real tool calls, drawn as the depth camera sees it. Listen for the servos. Switch to Try it yourself to click figures, drag them out of reach or crowd them, and see which call Claude would use. (~30 s, or skip if time is short)">
+<iframe id="scene" src="scene3d.html?embed=1" title="3D walkthrough: the arm putting lego figures in a box" allow="autoplay; fullscreen"></iframe>
+</section>
+
+<section class="slide " data-notes="The arm calibrates itself with the camera. arm_fit fits the camera's position and the joint zeros together from seven poses. calibrate_reach makes the arm reach out while the camera measures where the jaws land: 2.5 to 3 cm short, so we aim further out. The jaw offset updates on every pick. (~20 s)">
+<h2>It calibrates itself.</h2>
+<div class="calib">
+  <figure><svg viewBox="0 0 360 260" fill="none" aria-hidden="true">
+  <path d="M20 222H340" stroke="#5d6876" stroke-width="1.5"/>
+  <rect x="58" y="208" width="40" height="14" rx="3" stroke="#e9edf2" stroke-width="2"/>
+  <path d="M78 208V150L120 82L170 60" stroke="#5d6876" stroke-dasharray="0.01 8" stroke-linecap="round" stroke-width="4"/>
+  <path d="M78 208V150L142 92L222 100" stroke="#5d6876" stroke-dasharray="0.01 8" stroke-linecap="round" stroke-width="4"/>
+  <path d="M78 208V150L150 112L214 158" stroke="#e9edf2" stroke-dasharray="0.01 8" stroke-linecap="round" stroke-width="4"/>
+  <circle cx="170" cy="60" r="5" fill="#c98fb0"/><circle cx="222" cy="100" r="5" fill="#c98fb0"/><circle cx="214" cy="158" r="5" fill="#c98fb0"/>
+  <g stroke="#7d93f0" stroke-width="1.2" stroke-dasharray="3 6" opacity=".8"><path d="M300 74L172 62"/><path d="M300 74L224 100"/><path d="M300 74L216 156"/></g>
+  <g><rect x="280" y="50" width="76" height="28" rx="7" stroke="#e9edf2" stroke-width="2.2"/><circle cx="305" cy="64" r="6" stroke="#7d93f0" stroke-width="2"/><circle cx="331" cy="64" r="6" stroke="#7d93f0" stroke-width="2"/></g>
+</svg><figcaption><b>Camera and joints</b><span>7 poses, within 1 cm</span></figcaption></figure>
+  <figure><svg viewBox="0 0 360 260" fill="none" aria-hidden="true">
+  <path d="M20 222H340" stroke="#5d6876" stroke-width="1.5"/>
+  <rect x="38" y="208" width="40" height="14" rx="3" stroke="#e9edf2" stroke-width="2"/>
+  <path d="M58 208V150L140 96L230 150V196" stroke="#e9edf2" stroke-dasharray="0.01 8" stroke-linecap="round" stroke-width="4"/>
+  <path d="M222 196V214M238 196V214" stroke="#e9edf2" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="290" cy="216" r="7" fill="#f2b566"/>
+  <path d="M230 238H290M230 231v14M290 231v14" stroke="#f2b566" stroke-width="2"/>
+  <text x="260" y="256" text-anchor="middle" font-size="16" fill="#f2b566" font-family="Instrument Sans, sans-serif">3 cm</text>
+  <path d="M236 176Q262 158 284 196" stroke="#94a0ae" stroke-width="1.6" stroke-dasharray="4 5"/>
+  <path d="M276 190l8 7l1-11" stroke="#94a0ae" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption><b>Reach</b><span>lands 3 cm short, aims further</span></figcaption></figure>
+  <figure><svg viewBox="0 0 360 260" fill="none" aria-hidden="true">
+  <path d="M20 222H340" stroke="#5d6876" stroke-width="1.5"/>
+  <rect x="166" y="40" width="28" height="44" rx="4" stroke="#e9edf2" stroke-width="2.4"/>
+  <rect x="120" y="84" width="120" height="40" rx="5" stroke="#e9edf2" stroke-width="2.4"/>
+  <path d="M134 124V200M226 124V200" stroke="#e9edf2" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="128.0" cy="178.8" r="2" fill="#c98fb0"/><circle cx="128.6" cy="192.5" r="2" fill="#c98fb0"/><circle cx="128.6" cy="186.6" r="2" fill="#c98fb0"/><circle cx="135.2" cy="185.7" r="2" fill="#c98fb0"/><circle cx="130.3" cy="198.4" r="2" fill="#c98fb0"/><circle cx="127.1" cy="185.0" r="2" fill="#c98fb0"/><circle cx="137.6" cy="175.1" r="2" fill="#c98fb0"/><circle cx="131.6" cy="185.8" r="2" fill="#c98fb0"/><circle cx="134.1" cy="175.7" r="2" fill="#c98fb0"/><circle cx="135.2" cy="199.4" r="2" fill="#c98fb0"/><circle cx="134.2" cy="185.1" r="2" fill="#c98fb0"/><circle cx="127.2" cy="185.0" r="2" fill="#c98fb0"/><circle cx="130.8" cy="202.1" r="2" fill="#c98fb0"/><circle cx="139.9" cy="189.0" r="2" fill="#c98fb0"/><circle cx="136.1" cy="192.3" r="2" fill="#c98fb0"/><circle cx="129.9" cy="202.1" r="2" fill="#c98fb0"/><circle cx="129.8" cy="181.7" r="2" fill="#c98fb0"/><circle cx="129.3" cy="179.9" r="2" fill="#c98fb0"/><circle cx="137.3" cy="202.5" r="2" fill="#c98fb0"/><circle cx="131.3" cy="176.4" r="2" fill="#c98fb0"/><circle cx="138.9" cy="198.7" r="2" fill="#c98fb0"/><circle cx="134.2" cy="191.9" r="2" fill="#c98fb0"/><circle cx="221.8" cy="186.4" r="2" fill="#c98fb0"/><circle cx="221.8" cy="187.0" r="2" fill="#c98fb0"/><circle cx="227.8" cy="195.5" r="2" fill="#c98fb0"/><circle cx="221.2" cy="177.0" r="2" fill="#c98fb0"/><circle cx="231.5" cy="184.8" r="2" fill="#c98fb0"/><circle cx="223.6" cy="183.4" r="2" fill="#c98fb0"/><circle cx="222.9" cy="198.9" r="2" fill="#c98fb0"/><circle cx="220.9" cy="178.0" r="2" fill="#c98fb0"/><circle cx="225.6" cy="190.3" r="2" fill="#c98fb0"/><circle cx="219.9" cy="189.7" r="2" fill="#c98fb0"/><circle cx="230.1" cy="181.5" r="2" fill="#c98fb0"/><circle cx="229.2" cy="198.6" r="2" fill="#c98fb0"/><circle cx="230.1" cy="201.3" r="2" fill="#c98fb0"/><circle cx="228.5" cy="200.3" r="2" fill="#c98fb0"/><circle cx="231.3" cy="180.6" r="2" fill="#c98fb0"/><circle cx="224.4" cy="177.0" r="2" fill="#c98fb0"/><circle cx="226.2" cy="186.2" r="2" fill="#c98fb0"/><circle cx="226.4" cy="183.3" r="2" fill="#c98fb0"/><circle cx="219.6" cy="195.4" r="2" fill="#c98fb0"/><circle cx="227.3" cy="177.1" r="2" fill="#c98fb0"/><circle cx="230.4" cy="179.3" r="2" fill="#c98fb0"/><circle cx="226.3" cy="196.7" r="2" fill="#c98fb0"/>
+  <rect x="166" y="184" width="28" height="38" rx="3" fill="#f2b566"/>
+  <g stroke="#7d93f0" stroke-width="1.2" stroke-dasharray="3 6" opacity=".8"><path d="M300 52L138 178"/><path d="M308 52L228 178"/></g>
+  <g><rect x="268" y="26" width="76" height="28" rx="7" stroke="#e9edf2" stroke-width="2.2"/><circle cx="293" cy="40" r="6" stroke="#7d93f0" stroke-width="2"/><circle cx="319" cy="40" r="6" stroke="#7d93f0" stroke-width="2"/></g>
+  <path d="M54 92a26 26 0 1 1 8 20" stroke="#94a0ae" stroke-width="1.8" stroke-linecap="round"/><path d="M52 104l2 10l10-3" stroke="#94a0ae" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption><b>Jaws</b><span>re-measured every pick</span></figcaption></figure>
+</div>
+</section>
+
+<section class="slide " data-notes="Every mistake during live testing turned into tool behaviour, not a longer prompt. A small sideways hop pushed a figure 8 cm, so sideways moves now go over the top. Going home after every miss cost 30 seconds, so now it lifts, looks and retries. A low retreat knocked over a lego, so it rises to 15 cm after placing. (~25 s)">
+<h2>Every mistake became a rule.</h2>
+<div class="calib rules">
+  <figure><svg viewBox="0 0 360 240" fill="none" aria-hidden="true"><path d="M20 210H340" stroke="#5d6876" stroke-width="1.5"/>
+  <g fill="#f2b566"><rect x="192" y="180" width="16" height="30" rx="2"/><circle cx="200" cy="173" r="6"/></g>
+  <g opacity="0.45" stroke="#94a0ae" stroke-linecap="round"><rect x="88" y="161" width="44" height="18" rx="3" stroke-width="2.2"/><path d="M94 179V205M126 179V205" stroke-width="4.5"/></g><path d="M136 192H178" stroke="#94a0ae" stroke-width="2" stroke-dasharray="4 5" opacity=".7"/><path d="M151 169l14 14M165 169l-14 14" stroke="#94a0ae" stroke-width="2" stroke-linecap="round"/>
+  <path d="M110 150Q110 70 200 70Q290 70 290 150" stroke="#e9edf2" stroke-dasharray="0.01 8" stroke-linecap="round" stroke-width="4"/><g opacity="1" stroke="#e9edf2" stroke-linecap="round"><rect x="268" y="161" width="44" height="18" rx="3" stroke-width="2.2"/><path d="M274 179V205M306 179V205" stroke-width="4.5"/></g>
+  <path d="M282 142l8 10l8-10" stroke="#e9edf2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><figcaption><b>Go over the top</b><span>a sideways nudge pushed a figure 8 cm</span></figcaption></figure>
+  <figure><svg viewBox="0 0 360 240" fill="none" aria-hidden="true"><path d="M20 210H340" stroke="#5d6876" stroke-width="1.5"/>
+  <g fill="#f2b566"><rect x="172" y="180" width="16" height="30" rx="2"/><circle cx="180" cy="173" r="6"/></g><g opacity="1" stroke="#e9edf2" stroke-linecap="round"><rect x="190" y="136" width="44" height="18" rx="3" stroke-width="2.2"/><path d="M196 154V180M228 154V180" stroke-width="4.5"/></g>
+  <path d="M250 170V70" stroke="#e9edf2" stroke-dasharray="0.01 8" stroke-linecap="round" stroke-width="4"/><path d="M242 80l8-10l8 10" stroke="#e9edf2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <g transform="translate(232 18) scale(1.5)"><path stroke="#7d93f0" stroke-width="1.5" d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle stroke="#7d93f0" stroke-width="1.5" cx="12" cy="12" r="2.8"/></g>
+  <g opacity=".45" transform="translate(50 120) scale(2)" stroke="#94a0ae" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11 12 4l8 7"/><path d="M6.5 9.5V20h11V9.5"/></g><path d="M67 105l14 14M81 105l-14 14" stroke="#94a0ae" stroke-width="2" stroke-linecap="round"/></svg><figcaption><b>Lift, look, retry</b><span>going home after a miss took 30 s</span></figcaption></figure>
+  <figure><svg viewBox="0 0 360 240" fill="none" aria-hidden="true"><path d="M20 210H340" stroke="#5d6876" stroke-width="1.5"/>
+  <g fill="#f2b566"><rect x="102" y="180" width="16" height="30" rx="2"/><circle cx="110" cy="173" r="6"/></g><g fill="#c98fb0"><rect x="242" y="180" width="16" height="30" rx="2"/><circle cx="250" cy="173" r="6"/></g>
+  <path d="M110 160V50Q110 40 120 40H300" stroke="#e9edf2" stroke-dasharray="0.01 8" stroke-linecap="round" stroke-width="4"/><path d="M292 32l10 8l-10 8" stroke="#e9edf2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M60 50V160M52 50h16M52 160h16" stroke="#f2b566" stroke-width="2"/><text x="44" y="110" text-anchor="end" font-size="18" fill="#f2b566" font-family="Instrument Sans, sans-serif">15 cm</text>
+  <path d="M130 186H232" stroke="#94a0ae" stroke-width="2" stroke-dasharray="4 5" opacity=".6"/><path d="M233 173l14 14M247 173l-14 14" stroke="#94a0ae" stroke-width="2" stroke-linecap="round"/></svg><figcaption><b>Rise after placing</b><span>a low swing knocked a lego over</span></figcaption></figure>
+</div>
+</section>
+
+<section class="slide " data-notes="Safety, briefly. The motion engine stops and holds if a servo falls behind. Nothing moves while teleoperation or the e-stop is on. A failed servo read used to look like position zero; now the last good value is kept. Every call is logged with its frames. (~15 s)">
+<h2>Safe by design.</h2>
+<div class="calib safe">
+  <figure><svg class="ic" viewBox="0 0 24 24" width="96" height="96" fill="none" stroke="#f2b566" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5h8l5.5 5.5v8L16 21.5H8L2.5 16V8z"/><path d="M8.5 12h7"/></svg><figcaption><b>Stops itself</b><span>when a servo lags</span></figcaption></figure>
+  <figure><svg class="ic" viewBox="0 0 24 24" width="96" height="96" fill="none" stroke="#e9edf2" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/></svg><figcaption><b>One driver</b><span>never during teleop or e-stop</span></figcaption></figure>
+  <figure><svg class="ic" viewBox="0 0 24 24" width="96" height="96" fill="none" stroke="#7d93f0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9.5h18M7.5 5v4.5M12 5v4.5M16.5 5v4.5"/></svg><figcaption><b>Logged</b><span>every move, with its frames</span></figcaption></figure>
+</div>
+</section>
+
+<section class="slide " data-notes="Where it stands. With the corrections, the jaws land within about a centimetre. In our live session three of four figures ended up beside the pen. Next: the gripper camera in the check before closing, and pick retrying by itself. (~15 s)">
+<h2>Where it stands</h2>
+<div class="nums">
+  <div><svg viewBox="0 0 24 24" width="64" height="64" fill="none" stroke="#f2b566" stroke-width="1.4" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/><path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4"/></svg><b>~1 cm</b><span>landing accuracy</span></div>
+  <div><svg viewBox="0 0 160 60" width="160" height="60"><g transform="translate(0 0)" fill="#f2b566" stroke="#f2b566" stroke-width="2"><rect x="4" y="22" width="20" height="34" rx="3"/><circle cx="14" cy="12" r="8"/></g><g transform="translate(40 0)" fill="#f2b566" stroke="#f2b566" stroke-width="2"><rect x="4" y="22" width="20" height="34" rx="3"/><circle cx="14" cy="12" r="8"/></g><g transform="translate(80 0)" fill="#f2b566" stroke="#f2b566" stroke-width="2"><rect x="4" y="22" width="20" height="34" rx="3"/><circle cx="14" cy="12" r="8"/></g><g transform="translate(120 0)" fill="none" stroke="#f2b566" stroke-width="2"><rect x="4" y="22" width="20" height="34" rx="3"/><circle cx="14" cy="12" r="8"/></g></svg><b>3 of 4</b><span>figures placed, live</span></div>
+  <div><svg viewBox="0 0 160 60" width="160" height="60"><circle cx="10" cy="30" r="6" fill="#f2b566"/><circle cx="30" cy="30" r="6" fill="#f2b566"/><circle cx="50" cy="30" r="6" fill="#c98fb0"/><circle cx="70" cy="30" r="6" fill="#c98fb0"/><circle cx="90" cy="30" r="6" fill="#c98fb0"/><circle cx="110" cy="30" r="6" fill="#7d93f0"/><circle cx="130" cy="30" r="6" fill="#7d93f0"/><circle cx="150" cy="30" r="6" fill="#7d93f0"/></svg><b>8</b><span>tools</span></div>
+  <div><svg viewBox="0 0 24 24" width="64" height="64" fill="none" stroke="#7d93f0" stroke-width="1.4" stroke-linecap="round"><path d="M4 19h16M4 19 15 6"/><path d="M10 19a6 6 0 0 0-1.6-4.1"/><path d="M3 3l18 18" stroke="#94a0ae"/></svg><b>0</b><span>angles guessed by Claude</span></div>
+</div>
+</section>
+
+<section class="slide dark" data-notes="So: you say what goes where, Claude decides, the code measures, and the camera checks. Let's show it live. [Switch to the kiosk view and ask Claude to put the figure next to the pen.]">
+<canvas data-scene="arm" class="bleed dim"></canvas>
+<div class="hero"><h1>You say what. Claude does the rest.</h1>
+<p class="lead">Live demo</p></div>
+</section>
+</div>
+<div class="notes" id="notes"></div>
+<script>
+// Direction B: small point-cloud renders, coloured by depth (near warm → far cool).
+const ramp = t => { const a=[242,181,102], b=[201,143,176], c=[125,147,240]; const m=t<.5?[a,b,t*2]:[b,c,(t-.5)*2]; return m[0].map((v,i)=>Math.round(v+(m[1][i]-v)*m[2])); };
+function points(kind, time) {
+  const P = [];
+  const add = (x,y,z) => P.push([x,y,z]);
+  const rnd = () => Math.random();
+  // table plane
+  for (let i=0;i<2600;i++) add(-0.1+rnd()*0.75, 0, -0.35+rnd()*0.7);
+  if (kind === 'arm') {
+    const seg = (a,b,n,r) => { for (let i=0;i<n;i++){const t=rnd(); add(a[0]+(b[0]-a[0])*t+(rnd()-.5)*r, a[1]+(b[1]-a[1])*t+(rnd()-.5)*r, a[2]+(b[2]-a[2])*t+(rnd()-.5)*r);} };
+    const sw = Math.sin(time*0.4)*0.04;
+    seg([0,0,0],[0,0.11,0],260,0.05); seg([0,0.11,0],[0.12,0.24,sw],320,0.03); seg([0.12,0.24,sw],[0.25,0.13,sw*1.6],300,0.028); seg([0.25,0.13,sw*1.6],[0.25,0.05,sw*1.6],160,0.03);
+    for (const [x,z] of [[0.24,0.12],[0.29,0.16],[0.18,-0.05]]) seg([x,0,z],[x,0.04,z],90,0.014);
+  } else {
+    const seg = (a,b,n,r) => { for (let i=0;i<n;i++){const t=rnd(); add(a[0]+(b[0]-a[0])*t+(rnd()-.5)*r, a[1]+(b[1]-a[1])*t+(rnd()-.5)*r, a[2]+(b[2]-a[2])*t+(rnd()-.5)*r);} };
+    seg([0.25,0,0.0],[0.25,0.045,0.0],260,0.016);                       // object
+    seg([0.25,0.06,-0.035],[0.25,0.15,-0.035],200,0.008); seg([0.25,0.06,0.035],[0.25,0.15,0.035],200,0.008);   // jaw tips
+    seg([0.25,0.15,-0.04],[0.25,0.18,0.04],260,0.02);
+  }
+  return P;
+}
+for (const cv of document.querySelectorAll('canvas[data-scene]')) {
+  const kind = cv.dataset.scene; let pts = points(kind, 0), frame = 0;
+  const draw = time => {
+    const w = cv.clientWidth, h = cv.clientHeight, d = devicePixelRatio || 1;
+    if (!w) { requestAnimationFrame(draw); return; }
+    if (cv.width !== w*d) { cv.width = w*d; cv.height = h*d; }
+    const g = cv.getContext('2d'); g.setTransform(d,0,0,d,0,0); g.clearRect(0,0,w,h);
+    if (kind === 'arm' && !matchMedia('(prefers-reduced-motion: reduce)').matches && frame++ % 6 === 0) pts = points(kind, time/1000);
+    const yaw = kind === 'arm' ? -0.65 + Math.sin(time/9000)*0.08 : -0.25, cy = Math.cos(yaw), sy = Math.sin(yaw);
+    const camD = kind === 'arm' ? 1.0 : 0.55, f = (kind === 'arm' ? 1.15 : 1.05) * w, ox = kind === 'arm' ? 0.62*w : 0.7*w, oy = kind === 'arm' ? 0.36*h : 0.8*h;
+    const proj = (x0,y,z) => { const x = x0 - (kind === 'arm' ? 0.18 : 0.25), rx = x*cy - z*sy, rz = x*sy + z*cy, vy = y*0.92 - rz*0.38, dp = camD + rz*0.92 + y*0.38; return [ox + rx*f/dp, oy - vy*f/dp]; };
+    for (const [x0,y,z0] of pts) {
+      const x = x0 - (kind === 'arm' ? 0.18 : 0.25), z = z0;
+      const rx = x*cy - z*sy, rz = x*sy + z*cy;
+      const vy = y*0.92 - rz*0.38, depth = camD + rz*0.92 + y*0.38;
+      const sx = ox + rx*f/depth, s_y = oy - vy*f/depth;
+      const t = Math.min(1, Math.max(0, (depth-(camD-0.3))/0.6)); const [r,gg,b] = ramp(t);
+      g.fillStyle = `rgba(${r},${gg},${b},${y===0?0.35:0.95})`;
+      const sz = (y===0?1.1:1.6) * (w/700);
+      g.fillRect(sx, s_y, sz, sz);
+    }
+    if (kind === 'jaws') {   // seen jaw midpoint → seen object, with plain labels
+      const [mx, my] = proj(0.25, 0.06, 0), [bx, by] = proj(0.25, 0.048, 0), [tx, ty] = proj(0.25, 0.12, 0.05), [qx, qy] = proj(0.25, 0.025, 0.02);
+      g.strokeStyle = 'rgba(233,237,242,.75)'; g.setLineDash([4,5]); g.lineWidth = 1.2;
+      g.beginPath(); g.moveTo(mx, my - 0.03*f/camD); g.lineTo(bx, by); g.stroke(); g.setLineDash([]);
+      g.fillStyle = 'rgba(233,237,242,.85)'; g.font = `${Math.round(w/68)}px "Instrument Sans", sans-serif`;
+      g.fillText('jaw tips, as seen', tx + w*0.02, ty); g.fillText('object, as seen', qx + w*0.03, qy);
+    }
+    requestAnimationFrame(draw);
+  };
+  requestAnimationFrame(draw);
+}
+</script>
+<script>
+const slides=[...document.querySelectorAll('.slide')], stage=document.getElementById('stage'), notes=document.getElementById('notes'), scene=document.getElementById('scene');
+let i=Math.max(0,Math.min(slides.length-1,(parseInt(location.hash.slice(1))||1)-1));
+slides.forEach((s,k)=>{if(s.classList.contains('frame'))return;const c=document.createElement('div');c.className='count';c.textContent=`${k+1} / ${slides.length}`;s.appendChild(c)});
+function fit(){const s=Math.min(innerWidth/1600,innerHeight/900);stage.style.transform=`translate(-50%,-50%) scale(${s})`}
+function show(n){i=Math.max(0,Math.min(slides.length-1,n));window.__slide=i;if(typeof shownAt!=='undefined')shownAt.set(slides[i],performance.now());slides.forEach((s,k)=>s.classList.toggle('on',k===i));notes.textContent=`${i+1}/${slides.length}  ${slides[i].dataset.notes||''}`;history.replaceState(null,'','#'+(i+1));
+  if(scene&&scene.contentWindow)scene.contentWindow.postMessage({scene:'visible',on:slides[i].contains(scene)},'*');
+  window.dispatchEvent(new Event('resize'))}
+addEventListener('keydown',e=>{if(['ArrowRight','PageDown',' '].includes(e.key)){e.preventDefault();show(i+1)}else if(['ArrowLeft','PageUp'].includes(e.key))show(i-1);else if(e.key==='n'||e.key==='N')notes.classList.toggle('on');else if(e.key==='f'||e.key==='F')document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()});
+addEventListener('click',e=>{if(e.target.closest('.notes'))return;show(e.clientX>innerWidth/3?i+1:i-1)});
+addEventListener('message',e=>{const k=e.data&&e.data.key;if(k)dispatchEvent(new KeyboardEvent('keydown',{key:k}))});
+if(scene)scene.addEventListener('load',()=>show(i));
+addEventListener('resize',fit);fit();show(i);
+setTimeout(()=>{const h=document.querySelector('.help');h.style.transition='opacity 1s';h.style.opacity=0},5000);
+</script>
+
+<script>
+// ---------- point-cloud field behind every slide: a table plane of points, coloured near → far, drifting slightly per slide
+(() => {
+  const stage = document.getElementById('stage');
+  const cv = document.createElement('canvas'); cv.className = 'bgfield'; stage.prepend(cv);
+  const W = 1600, H = 900, R = 1.5; cv.width = W * R; cv.height = H * R;
+  const g = cv.getContext('2d'); g.scale(R, R);
+  const P = []; for (let i = 0; i < 4200; i++) P.push([(Math.random() * 2 - 1) * 2.4, 0.4 + Math.random() * 4.2]);
+  const ramp = t => { const a=[242,181,102], b=[201,143,176], c=[125,147,240]; const m=t<.5?[a,b,t*2]:[b,c,(t-.5)*2]; return m[0].map((v,i)=>Math.round(v+(m[1][i]-v)*m[2])); };
+  let yaw = 0, last = 0;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function draw(t) {
+    if (t - last > 33) {
+      last = t;
+      const idx = (window.__slide || 0), target = (idx - 5) * 0.06;
+      yaw += (target - yaw) * 0.04;
+      const drift = reduce ? 0 : (t / 1000) * 0.02;
+      g.clearRect(0, 0, W, H);
+      const cy = Math.cos(yaw), sy = Math.sin(yaw), f = 900, hy = 0.55;
+      for (const [x0, z0] of P) {
+        const z1 = ((z0 - drift) % 4.2 + 4.2) % 4.2 + 0.4;
+        const x = x0 * cy - z1 * sy * 0.15, z = z1 + x0 * sy * 0.15;
+        if (z < 0.3) continue;
+        const sx = W / 2 + f * x / z, syy = H * 0.34 + f * hy / z;
+        if (sx < -10 || sx > W + 10 || syy > H + 10) continue;
+        const tt = Math.min(1, (z - 0.4) / 3.6), [r, gg, b] = ramp(tt);
+        g.fillStyle = `rgba(${r},${gg},${b},${0.28 * (1 - tt * 0.6)})`;
+        const sz = 2.4 / z + 0.5; g.fillRect(sx, syy, sz, sz);
+      }
+    }
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+
+// ---------- shared helpers for the two jaw animations
+const ease = x => x < 0.5 ? 2 * x * x : 1 - (-2 * x + 2) ** 2 / 2;
+const seg = (t, a, b) => ease(Math.min(1, Math.max(0, (t - a) / (b - a))));
+function placeJaws(el, cx, tipY, half) {
+  el.setAttribute('transform', `translate(${cx} ${tipY})`);
+  const l = el.querySelector('.fl'), r = el.querySelector('.fr');
+  l.setAttribute('x1', -60); l.setAttribute('x2', -half); r.setAttribute('x1', 60); r.setAttribute('x2', half);
+}
+function dotCloud(parent, n, cx, cy, w, h, color) {
+  const ns = 'http://www.w3.org/2000/svg', grp = document.createElementNS(ns, 'g');
+  for (let i = 0; i < n; i++) { const c = document.createElementNS(ns, 'circle'); c.setAttribute('cx', cx + (Math.random() - .5) * w); c.setAttribute('cy', cy + (Math.random() - .5) * h); c.setAttribute('r', 2.2); c.setAttribute('fill', color); grp.appendChild(c); }
+  parent.appendChild(grp); return grp;
+}
+const slideOf = el => el && el.closest('.slide');
+const shownAt = new Map();
+const startOf = (sl, now) => { if (!shownAt.has(sl)) shownAt.set(sl, now); return shownAt.get(sl); };
+
+// ---------- slide 5: the model's jaws vs the camera's view
+(() => {
+  const svg = document.getElementById('trickSvg'); if (!svg) return;
+  const J = document.getElementById('tJaws'), G = document.getElementById('tGhostJ'), dots = document.getElementById('tDots');
+  const OBJ = 380, OFF = 40, TIP = 470;   // 2 cm drawn as 40 px
+  const tipsDots = [dotCloud(dots, 26, 0, -14, 14, 34, '#c98fb0'), dotCloud(dots, 26, 0, -14, 14, 34, '#c98fb0')];
+  const objDots = dotCloud(dots, 70, OBJ, 520, 40, 90, '#f2b566');
+  function frame(now) {
+    const sl = slideOf(svg);
+    if (sl && sl.classList.contains('on')) {
+      const t = ((now - startOf(sl, now)) / 1000) % 7;
+      const see = seg(t, 1.0, 1.8) * (1 - seg(t, 6.2, 6.8)), move = seg(t, 2.6, 3.8) * (1 - seg(t, 6.2, 6.9));
+      const cx = OBJ + OFF * (1 - move);
+      placeJaws(J, cx, TIP, 60); placeJaws(G, OBJ, TIP, 60);
+      document.getElementById('tGhost').setAttribute('opacity', (0.55 * (1 - move)).toFixed(2));
+      document.getElementById('tGhostL').setAttribute('x', OBJ - 150); document.getElementById('tGhostL').setAttribute('y', TIP - 200);
+      document.getElementById('tGhostL').setAttribute('opacity', (1 - move).toFixed(2));
+      tipsDots[0].setAttribute('transform', `translate(${cx - 60} ${TIP})`); tipsDots[1].setAttribute('transform', `translate(${cx + 60} ${TIP})`);
+      dots.setAttribute('opacity', see.toFixed(2));
+      document.getElementById('tSight').setAttribute('opacity', (see * 0.8).toFixed(2));
+      document.getElementById('tS1').setAttribute('d', `M668 72L${cx - 60} ${TIP - 20}`);
+      document.getElementById('tS2').setAttribute('d', `M696 72L${cx + 60} ${TIP - 20}`);
+      document.getElementById('tS3').setAttribute('d', `M682 72L${OBJ} 500`);
+      const dimOn = seg(t, 1.8, 2.3) * (1 - move);
+      document.getElementById('tDim').setAttribute('opacity', dimOn.toFixed(2));
+      document.getElementById('tDimP').setAttribute('d', `M${OBJ} 600H${cx}M${OBJ} 590v20M${cx} 590v20`);
+      const tt = document.getElementById('tDimT'); tt.setAttribute('x', (OBJ + cx) / 2); tt.setAttribute('y', 636);
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+
+// ---------- slide 6: one pick, step by step
+(() => {
+  const svg = document.getElementById('pickSvg'); if (!svg) return;
+  const J = document.getElementById('pJaws'), obj = document.getElementById('pObj'), dots = document.getElementById('pDots');
+  const items = [...document.querySelectorAll('#pSteps li')];
+  const OBJ = 420, OFF = 40, ABOVE = 360, LOW = 536, STEP = 1.7, N = 6, LOOP = STEP * N + 1.6;
+  const tipsDots = [dotCloud(dots, 22, 0, -14, 14, 34, '#c98fb0'), dotCloud(dots, 22, 0, -14, 14, 34, '#c98fb0')];
+  const objDots = dotCloud(dots, 60, 0, -50, 40, 90, '#f2b566');
+  function frame(now) {
+    const sl = slideOf(svg);
+    if (sl && sl.classList.contains('on')) {
+      const t = ((now - startOf(sl, now)) / 1000) % LOOP, k = Math.min(N - 1, Math.floor(t / STEP)), u = t / STEP;
+      const p = i => seg(u, i, i + 0.75);
+      const tipY = 250 + (ABOVE - 250) * p(0) + (LOW - ABOVE) * p(2) - 140 * p(5);
+      const cx = OBJ + OFF * (1 - p(1));
+      const half = 60 - 40 * p(4);
+      placeJaws(J, cx, tipY, half);
+      obj.setAttribute('transform', `translate(${OBJ} ${540 - 140 * p(5)})`);
+      const look = (seg(u, 1, 1.3) * (1 - seg(u, 1.8, 2))) + (seg(u, 3, 3.3) * (1 - seg(u, 3.85, 4)));
+      dots.setAttribute('opacity', look.toFixed(2));
+      tipsDots[0].setAttribute('transform', `translate(${cx - 60} ${tipY})`); tipsDots[1].setAttribute('transform', `translate(${cx + 60} ${tipY})`);
+      objDots.setAttribute('transform', `translate(${OBJ} 540)`);
+      document.getElementById('pSight').setAttribute('opacity', (look * 0.8).toFixed(2));
+      document.getElementById('pS1').setAttribute('d', `M768 62L${cx - 60} ${tipY - 20}`);
+      document.getElementById('pS2').setAttribute('d', `M796 62L${cx + 60} ${tipY - 20}`);
+      document.getElementById('pTick').setAttribute('opacity', (seg(u, 3.4, 3.7) * (1 - seg(u, 4.6, 4.9))).toFixed(2));
+      document.getElementById('pHeld').setAttribute('opacity', (seg(u, 4.6, 4.9) * (1 - seg(u, 6.4, 6.9))).toFixed(2));
+      const end = t > STEP * N;
+      items.forEach((li, i) => { li.classList.toggle('on', !end && i === k); li.classList.toggle('done', end || i < k); });
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

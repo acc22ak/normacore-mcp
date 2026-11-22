@@ -1,0 +1,22 @@
+{
+  "points": [
+    {
+      "r_m": 0.2163,
+      "error_m": -0.0113,
+      "tilt": -1.0
+    },
+    {
+      "r_m": 0.2723,
+      "error_m": -0.0094,
+      "tilt": -1.0
+    },
+    {
+      "r_m": 0.3243,
+      "error_m": -0.0258,
+      "tilt": -0.9
+    }
+  ],
+  "side": "left",
+  "updated": "2026-11-22T12:25:22",
+  "note": "error_m = real minus model reach of the jaw ends (negative: lands short), by distance from the base r_m. Measured by calibrate_reach with the depth camera, looking from the side."
+}

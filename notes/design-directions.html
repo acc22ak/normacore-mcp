@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pitch deck: four design directions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,200..700&family=Instrument+Sans:wght@400..600&family=Newsreader:opsz,wght@6..72,300..500&family=Public+Sans:wght@400;500&family=Onest:wght@300..600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#e6e7e5;color:#1d1f22;font:16px/1.5 "Public Sans",system-ui,sans-serif}
+.page{max-width:1500px;margin:0 auto;padding:48px 32px 80px}
+.page>h1{font:500 30px/1.2 "Public Sans",sans-serif;margin:0 0 6px}
+.page>p{margin:0 0 40px;color:#55585d;max-width:70ch}
+.dir{margin-bottom:64px}
+.dir header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:24px;align-items:end;margin-bottom:14px}
+.dir h2{font:500 22px/1.2 "Public Sans",sans-serif;margin:0}
+.dir header p{margin:4px 0 0;color:#55585d;max-width:78ch}
+.sw{display:flex;gap:6px}
+.sw i{width:26px;height:26px;border-radius:50%;border:1px solid rgba(0,0,0,.12)}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:900px){.pair{grid-template-columns:1fr}.dir header{grid-template-columns:1fr}}
+.s{aspect-ratio:16/9;container-type:inline-size;position:relative;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.08),0 8px 30px rgba(0,0,0,.08)}
+.meta{font-size:13px;color:#6a6d72;margin-top:8px}
+
+/* ---------- A. Measured: an engineering drawing */
+.A{background:#f2f3f1;color:#16181b;font-family:"Archivo",sans-serif}
+.A .t{position:absolute;left:7cqw;top:9cqw;font-weight:250;font-stretch:118%;font-size:6.2cqw;line-height:1.02;letter-spacing:-.01em;max-width:13em;margin:0}
+.A .sub{position:absolute;left:7cqw;top:27cqw;font-stretch:100%;font-weight:400;font-size:1.55cqw;line-height:1.45;color:#4b4f55;max-width:30em;margin:0}
+.A svg{position:absolute;inset:0;width:100%;height:100%}
+.A .t2{position:absolute;left:7cqw;top:7cqw;font-weight:300;font-stretch:112%;font-size:3.9cqw;line-height:1.08;max-width:14em;margin:0}
+.A .b2{position:absolute;left:7cqw;bottom:8cqw;font-size:1.6cqw;line-height:1.45;color:#3b3f45;max-width:26em;margin:0}
+
+/* ---------- B. Point cloud: the depth camera's view */
+.B{background:#1d232c;color:#e9edf2;font-family:"Instrument Sans",sans-serif}
+.B canvas{position:absolute;inset:0;width:100%;height:100%}
+.B .t{position:absolute;left:6.5cqw;bottom:8cqw;font-weight:400;font-size:5.4cqw;line-height:1.02;letter-spacing:-.025em;max-width:9em;margin:0}
+.B .sub{position:absolute;left:6.5cqw;bottom:4.2cqw;font-size:1.45cqw;color:#9aa6b4;margin:0}
+.B .t2{position:absolute;left:6.5cqw;top:7cqw;font-weight:400;font-size:3.6cqw;line-height:1.08;letter-spacing:-.02em;max-width:11em;margin:0}
+.B .b2{position:absolute;left:6.5cqw;bottom:7cqw;font-size:1.55cqw;line-height:1.45;color:#aab4c0;max-width:24em;margin:0}
+
+/* ---------- C. Gallery: the real photo carries it */
+.C{background:#fff;color:#1a1a1a;font-family:"Newsreader",serif}
+.C .ph{position:absolute;inset:0;background:url(img/find-latest-raw.jpg) center 70%/cover;filter:saturate(.75) contrast(1.02)}
+.C .veil{position:absolute;inset:0;background:linear-gradient(180deg,rgba(18,16,14,0) 35%,rgba(18,16,14,.72))}
+.C .t{position:absolute;left:6cqw;bottom:9cqw;color:#fff;font-weight:300;font-size:6cqw;line-height:1;letter-spacing:-.02em;margin:0;font-optical-sizing:auto}
+.C .sub{position:absolute;left:6cqw;bottom:5cqw;color:rgba(255,255,255,.82);font-family:"Public Sans",sans-serif;font-size:1.3cqw;margin:0}
+.C .img2{position:absolute;left:0;top:0;bottom:0;width:58%;background:url(img/verify-latest-raw.jpg) 30% 55%/cover}
+.C .ring{position:absolute;left:8%;top:55%;width:7cqw;height:7cqw;border:1.5px solid #fff;border-radius:50%;transform:translate(-50%,-50%)}
+.C .col{position:absolute;left:63%;right:6cqw;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}
+.C .t2{font-weight:300;font-size:3.5cqw;line-height:1.1;letter-spacing:-.015em;margin:0 0 2.2cqw}
+.C .b2{font-family:"Public Sans",sans-serif;font-size:1.35cqw;line-height:1.55;color:#4a4a4a;margin:0}
+.C .cap{position:absolute;left:2cqw;bottom:2cqw;color:#fff;font-family:"Public Sans",sans-serif;font-size:1.05cqw;opacity:.85}
+
+/* ---------- D. Three figures: colour means which object */
+.D{background:#fff;color:#18191b;font-family:"Onest",sans-serif}
+.D .t{position:absolute;left:7cqw;top:8cqw;font-weight:300;font-size:6.6cqw;line-height:.98;letter-spacing:-.035em;max-width:8em;margin:0}
+.D .calls{position:absolute;left:7cqw;right:7cqw;bottom:8cqw;display:grid;grid-template-columns:repeat(3,1fr);gap:3cqw}
+.D .call{display:grid;grid-template-columns:auto 1fr;gap:1.2cqw;align-items:baseline;font-size:1.45cqw;line-height:1.35}
+.D .call i{width:1.4cqw;height:1.4cqw;border-radius:50%;display:block;transform:translateY(.15cqw)}
+.D .call b{font-weight:500;display:block}
+.D .call span{color:#6b6e73}
+.D .t2{position:absolute;left:7cqw;top:7cqw;font-weight:300;font-size:3.9cqw;line-height:1.04;letter-spacing:-.03em;max-width:10em;margin:0}
+.D .b2{position:absolute;left:7cqw;bottom:8cqw;font-size:1.5cqw;line-height:1.5;color:#55585d;max-width:23em;margin:0}
+.D svg{position:absolute;right:6cqw;top:50%;transform:translateY(-50%);width:42cqw;height:auto}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Four directions for the pitch</h1>
+  <p>Each one is shown as the same two slides: the opening slide and the one about aiming what the camera sees. All four are quiet and spend their boldness in one place. Pick one, or mix them (for example, A's drawings with D's colours), and I'll restyle the deck and the 3D scene to match.</p>
+
+  <section class="dir" id="architecture">
+    <header>
+      <div><h2>Architecture, redrawn</h2>
+        <p>One loop instead of a box chart. Commands go out along the dark lane, and what the camera sees comes back along the blue lane. Each part gets a small drawing and a plain name, and port numbers stay out of the picture. It's drawn neutrally here and will take the style of the direction you pick.</p></div>
+      <div class="sw"><i style="background:#f6f7f6"></i><i style="background:#18191b"></i><i style="background:#2f4fe0"></i></div>
+    </header>
+    <div class="s" style="background:#f6f7f6;aspect-ratio:16/9">
+      <svg viewBox="0 0 1280 720" role="img" aria-label="You tell Claude what to do. Claude calls a tool on our MCP server. The server moves the robot arm through NormaCore Station, and receives the depth camera's images through the RealSense bridge, which it turns into photos and numbers for Claude." style="position:absolute;inset:0;width:100%;height:100%" font-family="Onest, sans-serif" fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <defs>
+          <marker id="ak" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1 1L9 5L1 9" fill="none" stroke="#18191b" stroke-width="1.6"/></marker>
+          <marker id="ab" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1 1L9 5L1 9" fill="none" stroke="#2f4fe0" stroke-width="1.6"/></marker>
+        </defs>
+        <text x="60" y="88" font-size="36" font-weight="300" fill="#18191b" letter-spacing="-.5">One loop: Claude looks, decides, and moves the arm</text>
+
+        <!-- you -->
+        <g stroke="#18191b" stroke-width="2.2">
+          <circle cx="130" cy="352" r="24"/>
+          <path d="M84 446Q86 386 130 386Q174 386 176 446"/>
+          <rect x="52" y="226" width="196" height="62" rx="12"/>
+          <path d="M112 288L118 308L132 288"/>
+        </g>
+        <text x="150" y="252" text-anchor="middle" font-size="16" fill="#18191b">Put the figures</text>
+        <text x="150" y="273" text-anchor="middle" font-size="16" fill="#18191b">in the box.</text>
+        <text x="130" y="510" text-anchor="middle" font-size="19" font-weight="500" fill="#18191b">You say what</text>
+        <text x="130" y="536" text-anchor="middle" font-size="15" fill="#6b6e73">in plain words</text>
+
+        <path d="M196 388H300" stroke="#18191b" stroke-width="1.8" marker-end="url(#ak)"/>
+
+        <!-- claude -->
+        <g stroke="#18191b" stroke-width="2.2">
+          <rect x="330" y="322" width="140" height="94" rx="7"/>
+          <path d="M306 430H494L480 444H320Z"/>
+        </g>
+        <g stroke="#18191b" stroke-width="5" opacity=".75"><path d="M350 346H420"/><path d="M350 366H444"/></g>
+        <g stroke="#2f4fe0" stroke-width="5"><path d="M380 390H450"/></g>
+        <text x="400" y="510" text-anchor="middle" font-size="19" font-weight="500" fill="#18191b">Claude decides</text>
+        <text x="400" y="536" text-anchor="middle" font-size="15" fill="#6b6e73">chooses the tool,</text>
+        <text x="400" y="556" text-anchor="middle" font-size="15" fill="#6b6e73">reads the photos</text>
+
+        <!-- claude <-> server lanes -->
+        <path d="M498 340H596" stroke="#18191b" stroke-width="1.8" marker-end="url(#ak)"/>
+        <text x="547" y="326" text-anchor="middle" font-size="14" fill="#18191b">calls a tool</text>
+        <path d="M596 436H498" stroke="#2f4fe0" stroke-width="1.8" marker-end="url(#ab)"/>
+        <text x="547" y="462" text-anchor="middle" font-size="14" fill="#2f4fe0">photos, numbers</text>
+
+        <!-- our server -->
+        <rect x="604" y="300" width="208" height="170" rx="16" stroke="#18191b" stroke-width="2.2"/>
+        <g stroke="#2f4fe0" stroke-width="2.2"><path d="M634 360Q656 338 678 360Q656 382 634 360Z"/><circle cx="656" cy="360" r="6"/></g>
+        <g stroke="#18191b" stroke-width="2.2"><path d="M690 376L720 340L724 376Z"/><path d="M698 376v-6M706 376v-8M714 376v-6"/></g>
+        <g stroke="#18191b" stroke-width="2.2"><path d="M766 340L784 346V360Q784 374 766 382Q748 374 748 360V346Z"/><path d="M758 360l6 6l10-12"/></g>
+        <g font-size="14" text-anchor="middle"><text x="656" y="408" fill="#2f4fe0">sees</text><text x="708" y="408" fill="#18191b">plans</text><text x="766" y="408" fill="#18191b">guards</text></g>
+        <text x="708" y="446" text-anchor="middle" font-size="14" fill="#6b6e73">8 tools</text>
+        <text x="708" y="510" text-anchor="middle" font-size="19" font-weight="500" fill="#18191b">Our MCP server measures</text>
+        <text x="708" y="536" text-anchor="middle" font-size="15" fill="#6b6e73">finds objects and jaw tips,</text>
+        <text x="708" y="556" text-anchor="middle" font-size="15" fill="#6b6e73">plans the motion, keeps it safe</text>
+
+        <!-- act lane: server -> station -> arm -->
+        <path d="M816 330H854" stroke="#18191b" stroke-width="1.8" marker-end="url(#ak)"/>
+        <rect x="858" y="312" width="150" height="38" rx="19" stroke="#18191b" stroke-width="1.6"/>
+        <text x="933" y="336" text-anchor="middle" font-size="14" fill="#18191b">NormaCore Station</text>
+        <path d="M1010 330H1026" stroke="#18191b" stroke-width="1.8" marker-end="url(#ak)"/>
+
+        <!-- arm on its table -->
+        <path d="M1020 332H1236" stroke="#c4c6c9" stroke-width="2"/>
+        <g stroke="#18191b" stroke-width="2.6">
+          <rect x="1030" y="318" width="40" height="14" rx="3"/>
+          <path d="M1050 318V286L1104 238L1160 282V300"/>
+          <circle cx="1050" cy="286" r="6" fill="#f6f7f6"/><circle cx="1104" cy="238" r="6" fill="#f6f7f6"/><circle cx="1160" cy="282" r="5" fill="#f6f7f6"/>
+          <path d="M1153 300V318M1167 300V318"/>
+        </g>
+        <g fill="#d6402f"><rect x="1196" y="314" width="10" height="18" rx="2"/><circle cx="1201" cy="309" r="4"/></g>
+        <text x="1128" y="206" text-anchor="middle" font-size="19" font-weight="500" fill="#18191b">The robot arm</text>
+
+        <!-- depth camera on a stand, looking at the table -->
+        <g stroke="#2f4fe0" stroke-width="1.4" stroke-dasharray="4 6"><path d="M1094 452L1062 338"/><path d="M1146 452L1214 338"/></g>
+        <g stroke="#18191b" stroke-width="2.4">
+          <rect x="1078" y="450" width="84" height="30" rx="8"/>
+          <circle cx="1100" cy="465" r="6"/><circle cx="1140" cy="465" r="6"/>
+          <path d="M1120 480V540M1120 500L1094 548M1120 500L1146 548"/>
+        </g>
+        <text x="1120" y="582" text-anchor="middle" font-size="19" font-weight="500" fill="#18191b">The depth camera</text>
+        <text x="1120" y="606" text-anchor="middle" font-size="15" fill="#6b6e73">colour + distance, every frame</text>
+
+        <!-- see lane: camera -> bridge -> server -->
+        <path d="M1074 465H1034V441H1012" stroke="#2f4fe0" stroke-width="1.8" marker-end="url(#ab)"/>
+        <rect x="858" y="422" width="150" height="38" rx="19" stroke="#2f4fe0" stroke-width="1.6"/>
+        <text x="933" y="446" text-anchor="middle" font-size="14" fill="#2f4fe0">RealSense bridge</text>
+        <path d="M854 441H818" stroke="#2f4fe0" stroke-width="1.8" marker-end="url(#ab)"/>
+
+        <!-- live 3D view, for the audience -->
+        <g stroke="#18191b" stroke-width="2"><rect x="604" y="604" width="74" height="46" rx="5"/><path d="M630 662H652M641 650V662"/></g>
+        <g stroke="#2f4fe0" stroke-width="2"><path d="M620 638L636 624L648 632L662 616"/></g>
+        <text x="696" y="624" font-size="15" font-weight="500" fill="#18191b">Live 3D view for the room</text>
+        <text x="696" y="645" font-size="14" fill="#6b6e73">the arm and the point cloud, same calibration as the tools</text>
+
+        <!-- legend -->
+        <path d="M60 640H96" stroke="#18191b" stroke-width="1.8"/><text x="106" y="645" font-size="14" fill="#18191b">commands go out</text>
+        <path d="M60 666H96" stroke="#2f4fe0" stroke-width="1.8"/><text x="106" y="671" font-size="14" fill="#2f4fe0">what the camera sees comes back</text>
+      </svg>
+    </div>
+    <div class="meta">Slide 3 in the deck, redrawn</div>
+  </section>
+
+  <!-- A -->
+  <section class="dir">
+    <header>
+      <div><h2>A · Measured</h2>
+        <p>An engineering drawing on cool paper. The one bold element is the dimension line: everything the code measures (39 cm reach, 43° camera, 2 cm offset) is drawn as a real dimension, in cobalt. Wide, light Archivo for the headlines. It suits a pitch whose message is "code measures, Claude decides".</p></div>
+      <div class="sw"><i style="background:#f2f3f1"></i><i style="background:#16181b"></i><i style="background:#8a8f96"></i><i style="background:#2f4fe0"></i></div>
+    </header>
+    <div class="pair">
+      <div>
+        <div class="s A">
+          <p class="t">Tell it what to move where.</p>
+          <p class="sub">Claude drives a real robot arm by looking through a depth camera. It finds the objects, picks them from above and checks its own grip.</p>
+          <svg viewBox="0 0 1280 720" aria-hidden="true" fill="none" stroke="#16181b" stroke-width="1.4">
+            <line x1="560" y1="600" x2="1210" y2="600"/>
+            <rect x="640" y="572" width="52" height="28"/>
+            <path d="M666 572V520L770 440L880 520V566" stroke-width="2.2"/>
+            <circle cx="666" cy="520" r="6"/><circle cx="770" cy="440" r="6"/><circle cx="880" cy="520" r="5"/>
+            <path d="M872 566v26M888 566v26"/>
+            <rect x="902" y="578" width="10" height="22"/>
+            <g stroke="#2f4fe0" stroke-width="1.2">
+              <path d="M666 640H880M666 632v16M880 632v16"/>
+              <path d="M1150 330L912 586" stroke-dasharray="5 6"/>
+              <rect x="1132" y="314" width="44" height="22" transform="rotate(-43 1154 325)"/>
+              <path d="M1040 600A100 100 0 0 0 1056 548"/>
+            </g>
+            <g fill="#2f4fe0" stroke="none" font-family="Archivo" font-size="17">
+              <text x="742" y="668">39 cm reach</text>
+              <text x="1064" y="584">43°</text>
+              <text x="1110" y="296">depth camera</text>
+            </g>
+          </svg>
+        </div>
+        <div class="meta">Opening slide</div>
+      </div>
+      <div>
+        <div class="s A">
+          <p class="t2">The arm model is 2 cm off. So we aim what the camera sees.</p>
+          <p class="b2">The camera finds the object and the real jaw tips in the same image, so its errors and the model's errors cancel out.</p>
+          <svg viewBox="0 0 1280 720" aria-hidden="true" fill="none" stroke="#16181b" stroke-width="1.6">
+            <line x1="720" y1="560" x2="1180" y2="560"/>
+            <rect x="920" y="470" width="40" height="90"/>
+            <rect x="880" y="250" width="120" height="60"/>
+            <path d="M890 310V440M990 310V440" stroke-width="5"/>
+            <g stroke="#2f4fe0" stroke-width="1.2">
+              <path d="M940 200V600" stroke-dasharray="4 6"/>
+              <path d="M990 200V600" stroke-dasharray="2 6" stroke="#8a8f96"/>
+              <path d="M940 630H990M940 622v16M990 622v16"/>
+            </g>
+            <g fill="#2f4fe0" stroke="none" font-family="Archivo" font-size="17">
+              <text x="938" y="664">≈2 cm</text>
+              <text x="862" y="190">seen centre</text>
+            </g>
+            <text x="996" y="190" fill="#8a8f96" stroke="none" font-family="Archivo" font-size="17">model's centre</text>
+          </svg>
+        </div>
+        <div class="meta">Content slide</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- B -->
+  <section class="dir">
+    <header>
+      <div><h2>B · Point cloud</h2>
+        <p>Everything is drawn the way the RealSense sees it: as points, coloured by distance from warm (near) to cool (far). The colour ramp means something, so it's the only colour used. Deep slate, not black, with Instrument Sans at a light weight. The opening slide is a living point cloud of the arm and the table.</p></div>
+      <div class="sw"><i style="background:#1d232c"></i><i style="background:#e9edf2"></i><i style="background:#f2b566"></i><i style="background:#c98fb0"></i><i style="background:#7d93f0"></i></div>
+    </header>
+    <div class="pair">
+      <div><div class="s B"><canvas data-scene="arm"></canvas><p class="t">Tell it what to move where.</p><p class="sub">Claude, a robot arm and a depth camera</p></div><div class="meta">Opening slide (the points drift slowly)</div></div>
+      <div><div class="s B"><canvas data-scene="jaws"></canvas><p class="t2">The arm model is 2 cm off. So we aim what the camera sees.</p><p class="b2">The jaw tips and the object come from the same depth image. Aim one at the other and the errors cancel.</p></div><div class="meta">Content slide</div></div>
+    </div>
+  </section>
+
+  <!-- C -->
+  <section class="dir">
+    <header>
+      <div><h2>C · Gallery</h2>
+        <p>Let the real camera frames carry the deck, like a photo essay: large images, a gentle Newsreader serif, and short captions in Public Sans. The only graphic is a thin white ring around the object Claude is looking at. It's the most honest option ("this is our actual table") and the easiest to keep elegant.</p></div>
+      <div class="sw"><i style="background:#ffffff"></i><i style="background:#1a1a1a"></i><i style="background:#4a4a4a"></i><i style="background:#b88a55"></i></div>
+    </header>
+    <div class="pair">
+      <div><div class="s C"><div class="ph"></div><div class="veil"></div><p class="t">Tell it what to move where.</p><p class="sub">Claude drives a real robot arm by looking through a depth camera</p></div><div class="meta">Opening slide</div></div>
+      <div><div class="s C"><div class="img2"></div><div class="ring"></div><div class="cap">The check before closing, 12:43</div><div class="col"><p class="t2">The arm model is 2 cm off. So we aim what the camera sees.</p><p class="b2">The camera finds the object and the real jaw tips in the same image, so its errors and the model's errors cancel out. If the jaws are still off, the gripper does not close.</p></div></div><div class="meta">Content slide</div></div>
+    </div>
+  </section>
+
+  <!-- D -->
+  <section class="dir">
+    <header>
+      <div><h2>D · Three figures</h2>
+        <p>Plain white Swiss layout with lots of space, in Onest at a light weight. Colour is used only to say which object we're talking about: red, blue and green are the three lego figures, and they keep those colours on every slide and in the 3D scene. The tool calls become the visual, which shows off the MCP design.</p></div>
+      <div class="sw"><i style="background:#ffffff"></i><i style="background:#18191b"></i><i style="background:#d6402f"></i><i style="background:#2e6bd3"></i><i style="background:#2f9a57"></i></div>
+    </header>
+    <div class="pair">
+      <div><div class="s D"><p class="t">Tell it what to move where.</p>
+        <div class="calls">
+          <div class="call"><i style="background:#d6402f"></i><div><b>pick(1)</b><span>Standing figure: one call does the whole grasp</span></div></div>
+          <div class="call"><i style="background:#2e6bd3"></i><div><b>lift_and_look()</b><span>A miss: look again from where it is, no going home</span></div></div>
+          <div class="call"><i style="background:#2f9a57"></i><div><b>pick(3, close=False)</b><span>Lying flat: stop open and check the photo first</span></div></div>
+        </div></div><div class="meta">Opening slide</div></div>
+      <div><div class="s D"><p class="t2">The arm model is 2 cm off. So we aim what the camera sees.</p><p class="b2">The camera finds the figure and the real jaw tips in the same image, so its errors and the model's errors cancel out.</p>
+        <svg viewBox="0 0 520 380" aria-hidden="true">
+          <line x1="20" y1="330" x2="500" y2="330" stroke="#d9dadc" stroke-width="2"/>
+          <g fill="#d6402f"><rect x="246" y="262" width="28" height="68" rx="3"/><circle cx="260" cy="248" r="11"/></g>
+          <g fill="none" stroke="#18191b" stroke-width="3"><rect x="200" y="70" width="120" height="56" rx="4"/><path d="M212 126v110M308 126v110" stroke-width="7" stroke-linecap="round"/></g>
+          <g fill="none" stroke="#b9bbbe" stroke-width="3" stroke-dasharray="6 7"><rect x="232" y="70" width="120" height="56" rx="4"/><path d="M244 126v110M340 126v110"/></g>
+          <text x="356" y="64" font-family="Onest" font-size="16" fill="#8a8d92">where the model thinks</text>
+          <text x="120" y="64" font-family="Onest" font-size="16" fill="#18191b">where it is</text>
+        </svg></div><div class="meta">Content slide</div></div>
+    </div>
+  </section>
+</div>
+
+<script>
+// Direction B: small point-cloud renders, coloured by depth (near warm → far cool).
+const ramp = t => { const a=[242,181,102], b=[201,143,176], c=[125,147,240]; const m=t<.5?[a,b,t*2]:[b,c,(t-.5)*2]; return m[0].map((v,i)=>Math.round(v+(m[1][i]-v)*m[2])); };
+function points(kind, time) {
+  const P = [];
+  const add = (x,y,z) => P.push([x,y,z]);
+  const rnd = () => Math.random();
+  // table plane
+  for (let i=0;i<2600;i++) add(-0.1+rnd()*0.75, 0, -0.35+rnd()*0.7);
+  if (kind === 'arm') {
+    const seg = (a,b,n,r) => { for (let i=0;i<n;i++){const t=rnd(); add(a[0]+(b[0]-a[0])*t+(rnd()-.5)*r, a[1]+(b[1]-a[1])*t+(rnd()-.5)*r, a[2]+(b[2]-a[2])*t+(rnd()-.5)*r);} };
+    const sw = Math.sin(time*0.4)*0.04;
+    seg([0,0,0],[0,0.11,0],260,0.05); seg([0,0.11,0],[0.12,0.24,sw],320,0.03); seg([0.12,0.24,sw],[0.25,0.13,sw*1.6],300,0.028); seg([0.25,0.13,sw*1.6],[0.25,0.05,sw*1.6],160,0.03);
+    for (const [x,z] of [[0.24,0.12],[0.29,0.16],[0.18,-0.05]]) seg([x,0,z],[x,0.04,z],90,0.014);
+  } else {
+    const seg = (a,b,n,r) => { for (let i=0;i<n;i++){const t=rnd(); add(a[0]+(b[0]-a[0])*t+(rnd()-.5)*r, a[1]+(b[1]-a[1])*t+(rnd()-.5)*r, a[2]+(b[2]-a[2])*t+(rnd()-.5)*r);} };
+    seg([0.25,0,0.0],[0.25,0.045,0.0],260,0.016);                       // object
+    seg([0.25,0.06,-0.035],[0.25,0.15,-0.035],200,0.008); seg([0.25,0.06,0.035],[0.25,0.15,0.035],200,0.008);   // jaw tips
+    seg([0.25,0.15,-0.04],[0.25,0.18,0.04],260,0.02);
+  }
+  return P;
+}
+for (const cv of document.querySelectorAll('.B canvas')) {
+  const kind = cv.dataset.scene; let pts = points(kind, 0), frame = 0;
+  const draw = time => {
+    const w = cv.clientWidth, h = cv.clientHeight, d = devicePixelRatio || 1;
+    if (cv.width !== w*d) { cv.width = w*d; cv.height = h*d; }
+    const g = cv.getContext('2d'); g.setTransform(d,0,0,d,0,0); g.clearRect(0,0,w,h);
+    if (kind === 'arm' && frame++ % 6 === 0) pts = points(kind, time/1000);
+    const yaw = kind === 'arm' ? -0.65 + Math.sin(time/9000)*0.08 : -0.25, cy = Math.cos(yaw), sy = Math.sin(yaw);
+    const camD = kind === 'arm' ? 1.0 : 0.55, f = (kind === 'arm' ? 1.15 : 1.9) * w, ox = kind === 'arm' ? 0.62*w : 0.66*w, oy = kind === 'arm' ? 0.36*h : 0.62*h;
+    for (const [x0,y,z0] of pts) {
+      const x = x0 - (kind === 'arm' ? 0.18 : 0.25), z = z0;
+      const rx = x*cy - z*sy, rz = x*sy + z*cy;
+      const vy = y*0.92 - rz*0.38, depth = camD + rz*0.92 + y*0.38;
+      const sx = ox + rx*f/depth, s_y = oy - vy*f/depth;
+      const t = Math.min(1, Math.max(0, (depth-(camD-0.3))/0.6)); const [r,gg,b] = ramp(t);
+      g.fillStyle = `rgba(${r},${gg},${b},${y===0?0.35:0.95})`;
+      const sz = (y===0?1.1:1.6) * (w/700);
+      g.fillRect(sx, s_y, sz, sz);
+    }
+    if (kind === 'jaws') {   // seen jaw midpoint → seen object
+      g.strokeStyle = 'rgba(233,237,242,.6)'; g.setLineDash([4,5]); g.lineWidth = 1;
+      g.beginPath(); g.moveTo(ox + 0.0*f/camD, oy - 0.08*f/camD); g.lineTo(ox, oy - 0.03*f/camD); g.stroke(); g.setLineDash([]);
+    }
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches && kind === 'arm') requestAnimationFrame(draw);
+  };
+  requestAnimationFrame(draw);
+}
+</script>
+</body>
+</html>

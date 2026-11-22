@@ -1,0 +1,88 @@
+{
+  "home": {
+    "bus": "5B8E115950",
+    "saved_at": "2026-11-21T20:09:00+00:00",
+    "how": "folded pose placed by hand, re-saved after the recalibration (old calibration was broken)",
+    "camera_reference": "gripper cam looks forward/level: gray boundary tape across mid-frame, green pen close in front-left",
+    "joints_norm": {
+      "base_yaw": 0.513,
+      "shoulder": 0.01,
+      "upper_arm_roll": 0.501,
+      "elbow": 0.944,
+      "forearm_roll": 0.543,
+      "wrist_pitch": 0.461,
+      "wrist_roll": 0.544,
+      "gripper": 0.557
+    },
+    "joints_raw": {
+      "1": 2074,
+      "2": 968,
+      "3": 2051,
+      "4": 3085,
+      "5": 2222,
+      "6": 1966,
+      "7": 2220,
+      "8": 2137
+    },
+    "calibration": {
+      "1": [
+        1024,
+        3072
+      ],
+      "2": [
+        947,
+        3149
+      ],
+      "3": [
+        877,
+        3219
+      ],
+      "4": [
+        881,
+        3215
+      ],
+      "5": [
+        36,
+        4060
+      ],
+      "6": [
+        1005,
+        3091
+      ],
+      "7": [
+        98,
+        3998
+      ],
+      "8": [
+        1268,
+        2828
+      ]
+    }
+  },
+  "reach_far_center": {
+    "bus": "5B8E115950",
+    "saved_at": "2026-11-21T20:12:36+00:00",
+    "how": "reached from home by 3 steps of shoulder +0.1 / elbow -0.15, wrist_pitch +0.15",
+    "camera_reference": "gripper just short of the far gray tape, straight ahead; pen at bottom-left edge of the image",
+    "joints_norm": {
+      "base_yaw": 0.511,
+      "shoulder": 0.46,
+      "upper_arm_roll": 0.518,
+      "elbow": 0.458,
+      "forearm_roll": 0.572,
+      "wrist_pitch": 0.611,
+      "wrist_roll": 0.544,
+      "gripper": 0.56
+    },
+    "joints_raw": {
+      "1": 2070,
+      "2": 1961,
+      "3": 2090,
+      "4": 1951,
+      "5": 2338,
+      "6": 2280,
+      "7": 2220,
+      "8": 2142
+    }
+  }
+}

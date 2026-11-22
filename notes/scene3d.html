@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Put the figures in the box · 3D walkthrough</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400..600&display=swap" rel="stylesheet">
+<style>
+/* Direction B, "point cloud": deep slate, everything drawn as the depth camera's points.
+   The near→far ramp (warm → rose → cool) is the only colour, and it always means distance. */
+:root{--bg:#1d232c;--ink:#e9edf2;--mute:#94a0ae;--faint:#5d6876;--panel:rgba(29,35,44,.78);--line:rgba(233,237,242,.14);--near:#f2b566;--mid:#c98fb0;--far:#7d93f0}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:"Instrument Sans",system-ui,sans-serif;overflow:hidden}
+canvas{display:block}
+button{font:inherit}
+button:focus-visible{outline:1.5px solid var(--ink);outline-offset:2px}
+#hud{position:fixed;left:32px;top:28px;width:min(540px,42vw);pointer-events:none;text-shadow:0 1px 10px rgba(15,19,25,.95)}
+#ask{font-size:15px;color:var(--mute);margin-bottom:14px}
+#ask b{color:var(--ink);font-weight:500}
+#call{font-weight:400;font-size:32px;line-height:1.1;letter-spacing:-.02em;word-break:break-word}
+#why{font-size:16px;line-height:1.5;margin-top:10px;max-width:50ch;color:var(--mute)}
+#subs{display:flex;flex-wrap:wrap;gap:4px 18px;margin-top:16px}
+#subs span{font-size:14px;color:var(--faint);padding-bottom:4px;border-bottom:1.5px solid transparent}
+#subs span.done{color:var(--mute)}
+#subs span.on{color:var(--ink);border-bottom-color:var(--near)}
+#guide{position:fixed;right:32px;top:28px;width:min(360px,29vw);background:var(--panel);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:14px 6px 8px}
+#guide h3{margin:0 0 10px 12px;font-size:15px;font-weight:500;color:var(--mute)}
+.row{display:grid;gap:1px;padding:8px 12px;border-left:1.5px solid transparent;transition:background .3s,border-color .3s}
+.row .s{font-size:13.5px;color:var(--faint)}
+.row .c{font-size:14.5px;color:var(--mute)}
+.row.on{background:rgba(233,237,242,.06);border-left-color:var(--near)}
+.row.on .s{color:var(--mute)}
+.row.on .c{color:var(--ink)}
+#log{position:fixed;left:32px;bottom:76px;width:min(540px,42vw);background:var(--panel);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:8px 12px;max-height:28vh;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;font-size:13.5px;line-height:1.45;pointer-events:none}
+#log div{color:var(--mute);padding-left:12px;border-left:1.5px solid var(--line)}
+#log div.call{color:var(--ink);margin-top:6px}
+#log div.ok{border-left-color:var(--far)}
+#log div.bad{border-left-color:var(--near);color:#f3cfa2}
+#bar{position:fixed;left:32px;right:32px;bottom:22px;display:flex;align-items:center;gap:6px}
+#bar button{background:var(--panel);color:var(--mute);border:1px solid var(--line);padding:7px 13px;border-radius:999px;cursor:pointer;min-height:34px;font-size:14px}
+#bar button:hover{color:var(--ink);border-color:rgba(233,237,242,.4)}
+#bar button.on{color:var(--bg);background:var(--near);border-color:var(--near)}
+#track{flex:1;height:2px;background:var(--line);position:relative;margin:0 10px;cursor:pointer}
+#track::before{content:"";position:absolute;inset:-8px 0}
+#fill{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,var(--near),var(--mid),var(--far));width:0}
+#time{font-size:13px;color:var(--faint);min-width:80px;text-align:right;font-variant-numeric:tabular-nums}
+.lab{position:fixed;transform:translate(-50%,-100%);font-size:13px;color:var(--ink);padding:2px 0;white-space:nowrap;pointer-events:none;transition:opacity .3s;text-shadow:0 1px 6px rgba(15,19,25,.9)}
+.lab::after{content:"";position:absolute;left:50%;top:100%;width:1px;height:12px;background:rgba(233,237,242,.4)}
+.lab b{font-weight:600;margin-right:6px}
+.lab small{color:var(--mute);font-size:12.5px}
+.mark{position:fixed;transform:translate(18px,-50%);font-size:14px;white-space:nowrap;pointer-events:none;padding-left:10px;border-left:1.5px solid var(--ink);text-shadow:0 1px 6px rgba(15,19,25,.9)}
+.mark.ok{border-left-color:var(--far)}
+.mark.bad{border-left-color:var(--near);color:#f3cfa2}
+.mark.info{border-left-color:var(--mute);color:var(--mute)}
+#pipframe{position:fixed;border:1px solid rgba(233,237,242,.35);pointer-events:none;display:none}
+#pipframe span{position:absolute;left:0;top:-24px;color:var(--mute);font-size:13px;white-space:nowrap}
+#modes{position:fixed;right:32px;bottom:72px;display:flex;gap:2px;z-index:3;background:var(--panel);padding:2px 4px}
+#modes button{background:none;color:var(--faint);border:0;padding:6px 12px;cursor:pointer;font-size:14px;border-bottom:1.5px solid transparent}
+#modes button.on{color:var(--ink);border-bottom-color:var(--near)}
+.tryonly{display:none;gap:6px}
+body.try .tryonly{display:flex}
+body.try #track{visibility:hidden}
+body.try #time{color:var(--ink);font-size:14px;min-width:280px}
+#note{position:fixed;right:32px;bottom:116px;background:var(--panel);padding:6px 10px;font-size:12px;color:var(--faint);max-width:320px;text-align:right}
+#ramp{position:fixed;right:32px;bottom:150px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--faint)}
+#ramp i{width:90px;height:2px;background:linear-gradient(90deg,var(--near),var(--mid),var(--far))}
+body.embed #note,body.embed #why,body.embed #ramp{display:none}
+
+/* presentation mode (embedded in the deck): no controls, icons + call names only */
+body.embed #bar,body.embed #modes,body.embed #log,body.embed #note,body.embed #why,body.embed #ramp,body.embed #guide h3,body.embed .row .s{display:none!important}
+body.embed #guide{width:auto;padding:10px 8px;top:40px;right:40px}
+body.embed .row{grid-template-columns:28px auto;align-items:center;gap:12px;padding:9px 14px}
+body.embed .row .c{font-size:17px}
+body.embed #hud{left:48px;top:44px}
+body.embed #call{font-size:44px}
+body.embed #subs span{font-size:17px}
+.row .ic{display:none}
+body.embed .row .ic{display:block;width:26px;height:26px;color:var(--faint)}
+body.embed .row.on .ic{color:var(--near)}
+body.embed #ask{display:flex;align-items:center;gap:10px;font-size:17px}
+@media (prefers-reduced-motion: reduce){.row,.lab{transition:none}}
+</style>
+<script src="assets/sounds/robot_motor.js"></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head>
+<body>
+<div id="hud">
+  <div id="ask">Human: <b>"Put the lego figures in the box."</b></div>
+  <div id="call">—</div>
+  <div id="why"></div>
+  <div id="subs"></div>
+</div>
+<div id="guide"><h3>Which call when</h3><div id="rows"></div></div>
+<div id="log"></div>
+<div id="pipframe"><span>Photo for Claude</span></div>
+<div id="note">Simplified drawing of the ElRobot follower (the real arm has 7 joints + gripper). Calls, steps and rules are the real ones from normacore-mcp.</div>
+<div id="ramp">near <i></i> far</div>
+<div id="modes"><button data-m="tour" class="on">Guided tour</button><button data-m="try">Try it yourself</button></div>
+<div id="bar">
+  <span class="tryonly"><button id="find">find_objects</button> <button id="home">home</button> <button id="miss" title="The next pick misses, to show the recovery">Miss the next pick</button></span>
+  <button id="play">Pause</button>
+  <button id="restart">Restart</button>
+  <button id="speed">1×</button>
+  <button id="sound" title="Motor sound">Sound on</button>
+  <div id="track"><div id="fill"></div></div>
+  <div id="time">0 s</div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { MeshSurfaceSampler } from 'three/addons/math/MeshSurfaceSampler.js';
+
+if (new URLSearchParams(location.search).has('embed')) document.body.classList.add('embed');
+// keep the pitch deck's arrow keys working when this page is embedded
+addEventListener('keydown', e => { if (parent !== window && ['ArrowRight','ArrowLeft','PageDown','PageUp','n','N','f','F'].includes(e.key)) parent.postMessage({key: e.key}, '*'); });
+
+// ---------------------------------------------------------------- scene
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.setClearColor(0x1d232c);
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+
+const view = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.01, 10);
+view.position.set(0.52, 0.62, 0.78);
+const controls = new OrbitControls(view, renderer.domElement);
+controls.target.set(0.2, 0.06, 0.0);
+controls.enableDamping = true;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.35;
+controls.minDistance = 0.35; controls.maxDistance = 2.0;
+controls.maxPolarAngle = Math.PI * 0.48;
+
+scene.add(new THREE.HemisphereLight(0xfff6e8, 0x2a2622, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+sun.position.set(0.6, 1.2, 0.5);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -0.6, right: 0.8, top: 0.6, bottom: -0.6, near: 0.1, far: 3 });
+scene.add(sun);
+
+const M = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.55, metalness: 0.05, ...o });
+const box = (w, h, d, mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.castShadow = m.receiveShadow = true; return m; };
+const cyl = (r, h, mat, seg = 24) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, seg), mat); m.castShadow = m.receiveShadow = true; return m; };
+
+// table (robot frame: metres, base at origin, +x toward the depth camera, y up)
+const table = box(1.3, 0.03, 0.9, M(0xc9995c, { roughness: 0.8 }));
+table.position.set(0.32, -0.015, 0.0);
+scene.add(table);
+for (let i = -4; i <= 4; i++) { const s = box(1.3, 0.0004, 0.002, M(0xb5854b)); s.position.set(0.32, 0.0002, i * 0.1); s.castShadow = false; scene.add(s); }
+
+// the box the figures go into
+const BOX = { x: 0.2, z: -0.2, size: 0.14, h: 0.06, wall: 0.006 };
+{
+  const g = new THREE.Group(), mat = M(0x8b6a43, { roughness: 0.9 });
+  const f = box(BOX.size, BOX.wall, BOX.size, mat); f.position.y = BOX.wall / 2; g.add(f);
+  for (const [dx, dz, w, d] of [[0, BOX.size / 2, BOX.size, BOX.wall], [0, -BOX.size / 2, BOX.size, BOX.wall], [BOX.size / 2, 0, BOX.wall, BOX.size], [-BOX.size / 2, 0, BOX.wall, BOX.size]]) {
+    const wl = box(w, BOX.h, d, mat); wl.position.set(dx, BOX.h / 2, dz); g.add(wl);
+  }
+  g.position.set(BOX.x, 0, BOX.z);
+  scene.add(g);
+}
+const inBox = (x, z) => Math.abs(x - BOX.x) < BOX.size / 2 && Math.abs(z - BOX.z) < BOX.size / 2;
+
+// a pen, for scale
+{ const p = cyl(0.005, 0.14, M(0x1d6b3a), 12); p.rotation.z = Math.PI / 2; p.rotation.y = 0.5; p.position.set(0.33, 0.005, 0.0); scene.add(p); }
+
+// ---------------------------------------------------------------- lego figures
+function minifig(color, legs = 0x2d3a8c) {
+  const g = new THREE.Group(), y = M(0xffd21f), c = M(color), l = M(legs);
+  const legL = box(0.0075, 0.013, 0.008, l); legL.position.set(-0.004, 0.0065, 0); g.add(legL);
+  const legR = legL.clone(); legR.position.x = 0.004; g.add(legR);
+  const hip = box(0.016, 0.003, 0.008, l); hip.position.y = 0.0145; g.add(hip);
+  const torso = box(0.016, 0.013, 0.008, c); torso.position.y = 0.0225; g.add(torso);
+  for (const s of [-1, 1]) { const a = box(0.004, 0.011, 0.005, c); a.position.set(s * 0.0098, 0.022, 0.001); a.rotation.x = -0.3; g.add(a); const h = cyl(0.0022, 0.003, y, 10); h.position.set(s * 0.0098, 0.0155, 0.003); g.add(h); }
+  const neck = cyl(0.003, 0.002, y, 12); neck.position.y = 0.03; g.add(neck);
+  const head = cyl(0.0048, 0.0085, y); head.position.y = 0.0353; g.add(head);
+  const stud = cyl(0.0028, 0.002, y, 12); stud.position.y = 0.0405; g.add(stud);
+  return g;
+}
+const FIGS = [];
+function addFig(id, color, legs, x, z, lying, yaw = 0) {
+  const outer = new THREE.Group(), inner = minifig(color, legs);
+  if (lying) { inner.rotation.x = -Math.PI / 2; inner.position.set(0, 0.0045, 0.0205); }
+  outer.add(inner);
+  outer.rotation.y = yaw;
+  scene.add(outer);
+  const f = { id, outer, home: [x, z], lying, yaw, top: lying ? 0.01 : 0.041, color, rest: 0, vy: 0, falling: false };
+  FIGS.push(f);
+  return f;
+}
+const fig1 = addFig(1, 0xd93a2b, 0x2d3a8c, 0.22, 0.10, false, 0.3);
+const fig2 = addFig(2, 0x2f6fd6, 0x333333, 0.27, 0.15, false, -0.4);
+const fig3 = addFig(3, 0x2fa35a, 0x6b4a2b, 0.16, 0.19, true, 0);
+// lying figure across the radial direction, so the jaws need a wrist roll
+fig3.yaw = Math.atan2(-0.19, 0.16);
+function resetFigs() {
+  for (const f of FIGS) {
+    scene.attach(f.outer);
+    f.outer.position.set(f.home[0], 0, f.home[1]);
+    f.outer.rotation.set(0, f.yaw, 0);
+    f.falling = false; f.vy = 0;
+  }
+}
+resetFigs();
+
+// ---------------------------------------------------------------- arm (simplified, analytic IK, jaws pointing down)
+const H = 0.11, L1 = 0.17, L2 = 0.17, LW = 0.095;
+const dark = M(0x1c1c1c, { roughness: 0.45 }), horn = M(0xff5a2a, { roughness: 0.5 }), steel = M(0x3a3a3a, { metalness: 0.4, roughness: 0.4 });
+const base = new THREE.Group(); scene.add(base);
+{ const b = cyl(0.05, 0.03, dark); b.position.y = 0.015; scene.add(b); const t = cyl(0.04, 0.05, dark); t.position.y = 0.055; base.add(t); const s = box(0.05, 0.045, 0.06, dark); s.position.y = H - 0.005; base.add(s); }
+const upper = new THREE.Group(); upper.position.y = H; base.add(upper);
+{ const a = box(L1, 0.03, 0.034, dark); a.position.x = L1 / 2; upper.add(a); for (const z of [-0.02, 0.02]) { const h = cyl(0.012, 0.004, horn); h.rotation.x = Math.PI / 2; h.position.z = z; upper.add(h); } }
+const fore = new THREE.Group(); fore.position.x = L1; upper.add(fore);
+{ const a = box(L2, 0.026, 0.03, dark); a.position.x = L2 / 2; fore.add(a); const s = box(0.04, 0.036, 0.04, dark); fore.add(s); for (const z of [-0.022, 0.022]) { const h = cyl(0.011, 0.004, horn); h.rotation.x = Math.PI / 2; h.position.z = z; fore.add(h); } }
+const wrist = new THREE.Group(); wrist.position.x = L2; fore.add(wrist);
+{ const s = box(0.034, 0.032, 0.036, dark); wrist.add(s); for (const z of [-0.02, 0.02]) { const h = cyl(0.01, 0.004, horn); h.rotation.x = Math.PI / 2; h.position.z = z; wrist.add(h); } }
+const rollG = new THREE.Group(); wrist.add(rollG);
+{ const palm = box(0.03, 0.03, 0.06, dark); palm.position.x = 0.038; rollG.add(palm); const cam = box(0.014, 0.012, 0.016, steel); cam.position.set(0.04, 0.02, 0); rollG.add(cam); }
+const jawA = box(0.042, 0.012, 0.005, steel), jawB = jawA.clone();
+jawA.position.x = jawB.position.x = LW - 0.021;
+rollG.add(jawA, jawB);
+function setGrip(gap) { jawA.position.z = gap / 2 + 0.0025; jawB.position.z = -gap / 2 - 0.0025; }
+
+function ik(p) {
+  const r = Math.hypot(p.x, p.z), th = Math.atan2(-p.z, p.x);
+  const wr = r, wy = p.y + LW - H;
+  let d = Math.hypot(wr, wy); d = Math.min(Math.max(d, 0.02), L1 + L2 - 1e-4);
+  const a1 = Math.atan2(wy, wr) + Math.acos(Math.min(1, (L1 * L1 + d * d - L2 * L2) / (2 * L1 * d)));
+  const ex = L1 * Math.cos(a1), ey = L1 * Math.sin(a1);
+  const a2 = Math.atan2(wy - ey, wr - ex);
+  return { th, a1, a2 };
+}
+function poseArm(p, roll) {
+  const q = ik(p);
+  base.rotation.y = q.th; upper.rotation.z = q.a1; fore.rotation.z = q.a2 - q.a1; wrist.rotation.z = -Math.PI / 2 - q.a2;
+  rollG.rotation.x = roll;
+}
+const tipWorld = () => rollG.localToWorld(new THREE.Vector3(LW, 0, 0));
+
+// ---------------------------------------------------------------- depth camera, frustum, sight lines
+const camPos = new THREE.Vector3(0.70, 0.59, 0.01);
+const depthCam = new THREE.PerspectiveCamera(42, 640 / 480, 0.05, 3);
+depthCam.position.copy(camPos);
+depthCam.lookAt(camPos.clone().add(new THREE.Vector3(-Math.cos(0.75), -Math.sin(0.75), 0)));
+depthCam.updateMatrixWorld(); depthCam.updateProjectionMatrix();
+{ const body = box(0.09, 0.025, 0.025, M(0x9a9a9a, { metalness: 0.5, roughness: 0.35 })); body.position.copy(camPos); body.quaternion.copy(depthCam.quaternion); body.rotateY(Math.PI / 2); scene.add(body);
+  const pole = cyl(0.006, camPos.y, steel); pole.position.set(camPos.x + 0.02, camPos.y / 2, camPos.z); scene.add(pole); }
+const frustumMat = new THREE.LineBasicMaterial({ color: 0xe9edf2, transparent: true, opacity: 0.12 });
+const frustumPts = [];
+for (const [x, y] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { const v = new THREE.Vector3(x, y, 0.5).unproject(depthCam).sub(camPos).normalize().multiplyScalar(0.85).add(camPos); frustumPts.push(v); }
+{ const pts = []; for (const v of frustumPts) pts.push(camPos, v); for (let i = 0; i < 4; i++) pts.push(frustumPts[i], frustumPts[(i + 1) % 4]); scene.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), frustumMat)); }
+const coneMat = new THREE.MeshBasicMaterial({ color: 0xe9edf2, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
+{ const g = new THREE.BufferGeometry(); const p = [camPos, ...frustumPts]; const idx = [0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 1];
+  g.setFromPoints(p); g.setIndex(idx); const cone = new THREE.Mesh(g, coneMat); cone.userData.noPts = true; scene.add(cone); }
+const sightMat = new THREE.LineDashedMaterial({ color: 0xe9edf2, dashSize: 0.008, gapSize: 0.006, transparent: true, opacity: 0 });
+const sightGeo = new THREE.BufferGeometry().setFromPoints([camPos, camPos, camPos, camPos]);
+const sight = new THREE.LineSegments(sightGeo, sightMat); scene.add(sight);
+const pipCam = new THREE.PerspectiveCamera(13, 4 / 3, 0.05, 3);
+
+// ---------------------------------------------------------------- point-cloud look: every surface drawn as the depth camera would see it
+// Each mesh gets a cloud of points sampled from its surface, as a child, so moving parts carry their points.
+// Colour = distance from the depth camera: warm near → rose → cool far. The solid meshes stay for clicking only.
+const PT_VERT = `
+uniform vec3 camPos; uniform float size; uniform float vpH;
+varying float vT;
+void main(){
+  vec4 w = modelMatrix * vec4(position, 1.0);
+  vT = clamp((distance(w.xyz, camPos) - 0.42) / 0.62, 0.0, 1.0);
+  vec4 mv = viewMatrix * w;
+  gl_Position = projectionMatrix * mv;
+  gl_PointSize = max(1.0, size * projectionMatrix[1][1] * vpH * 0.5 / -mv.z);
+}`;
+const PT_FRAG = `
+uniform float alpha; varying float vT;
+vec3 ramp(float t){
+  vec3 a = vec3(0.949,0.710,0.400), b = vec3(0.788,0.561,0.690), c = vec3(0.490,0.576,0.941);
+  return t < 0.5 ? mix(a, b, t * 2.0) : mix(b, c, (t - 0.5) * 2.0);
+}
+void main(){
+  vec2 p = gl_PointCoord - 0.5;
+  if (dot(p, p) > 0.25) discard;
+  gl_FragColor = vec4(ramp(vT), alpha);
+}`;
+const PT_MATS = [];
+function pointMat(size, alpha) {
+  const m = new THREE.ShaderMaterial({ vertexShader: PT_VERT, fragmentShader: PT_FRAG, transparent: alpha < 1, depthWrite: alpha >= 1,
+    uniforms: { camPos: { value: camPos }, size: { value: size }, vpH: { value: innerHeight * renderer.getPixelRatio() }, alpha: { value: alpha } } });
+  PT_MATS.push(m); return m;
+}
+const MAT_OBJ = pointMat(0.0021, 1), MAT_TABLE = pointMat(0.0024, 0.26);
+const POINTS_PER_M2 = 170000;
+function meshArea(g) {
+  const p = g.attributes.position, a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(); let s = 0;
+  for (let i = 0; i < p.count; i += 3) { a.fromBufferAttribute(p, i); b.fromBufferAttribute(p, i + 1); c.fromBufferAttribute(p, i + 2); s += b.sub(a).cross(c.sub(a)).length() / 2; }
+  return s;
+}
+{
+  const meshes = []; scene.traverse(o => { if (o.isMesh && !o.userData.noPts) meshes.push(o); });
+  const v = new THREE.Vector3();
+  for (const m of meshes) {
+    if (m.geometry.parameters && m.geometry.parameters.height === 0.0004) { m.visible = false; continue; }   // table seams
+    const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry;
+    const isTable = m === table;
+    const n = Math.round(Math.min(isTable ? 26000 : 9000, Math.max(30, meshArea(g) * POINTS_PER_M2 * (isTable ? 0.12 : 1))));
+    const sampler = new MeshSurfaceSampler(new THREE.Mesh(g)).build();
+    const arr = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { sampler.sample(v); arr[i * 3] = v.x; arr[i * 3 + 1] = v.y; arr[i * 3 + 2] = v.z; }
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+    const pts = new THREE.Points(geo, isTable ? MAT_TABLE : MAT_OBJ);
+    pts.raycast = () => {};
+    m.add(pts);
+    m.material.visible = false;
+    m.castShadow = m.receiveShadow = false;
+  }
+}
+
+// ---------------------------------------------------------------- motor sound
+// A recorded servo loop that plays the whole time; each frame the arm's real joint speed sets how loud and how
+// high it sounds (same recipe as UI_LLM_experiments/25_robot_arm/motorSound.ts).
+const MAX_GAIN = 0.5, RATE_MIN = 0.8, RATE_MAX = 1.25;
+const JOINT_MAX_SPEED = 1.6;   // rad/s that counts as full speed in this scene
+const GRIP_MAX_SPEED = 0.08;   // m/s of jaw travel that counts as full speed
+const motor = { ctx: null, gain: null, source: null, level: 0, on: true, visible: true, prevQ: null, prevGrip: 0, skip: true };
+function startMotorSound() {
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  const ctx = new AC(), gain = ctx.createGain(); gain.gain.value = 0; gain.connect(ctx.destination);
+  Object.assign(motor, { ctx, gain });
+  const fromB64 = () => { if (!window.ROBOT_MOTOR_MP3) throw new Error('no sample'); const bin = atob(window.ROBOT_MOTOR_MP3); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u.buffer; };
+  // fetch works over http; opened from disk (file://) it is blocked, so fall back to the base64 copy
+  (location.protocol === 'file:' ? Promise.resolve().then(fromB64) : fetch('assets/sounds/robot_motor.mp3').then(r => r.ok ? r.arrayBuffer() : Promise.reject()).catch(fromB64))
+    .then(data => ctx.decodeAudioData(data))
+    .then(buffer => { const src = ctx.createBufferSource(); src.buffer = buffer; src.loop = true; src.connect(gain); src.start(); motor.source = src; })
+    .catch(() => {});   // no sample: the arm is simply silent
+  const unlock = () => { if (motor.visible) void ctx.resume(); };
+  addEventListener('pointerdown', unlock); addEventListener('keydown', unlock);
+  if (navigator.userActivation && navigator.userActivation.hasBeenActive) unlock();
+}
+function updateMotorSound(jointSpeeds, grip) {
+  if (!motor.ctx) return;
+  const raw = motor.on && motor.visible ? Math.max(...jointSpeeds, grip * 0.6) : 0;
+  const target = Math.min(1, raw * 1.5);
+  // quick to start, slower to die away, so frame-to-frame jitter doesn't flutter
+  motor.level += (target - motor.level) * (target > motor.level ? 0.3 : 0.1);
+  const now = motor.ctx.currentTime;
+  motor.gain.gain.setTargetAtTime(motor.level * MAX_GAIN, now, 0.05);
+  if (motor.source) motor.source.playbackRate.setTargetAtTime(RATE_MIN + (RATE_MAX - RATE_MIN) * motor.level, now, 0.1);
+}
+function motorFrame(dt) {
+  const q = [base.rotation.y, upper.rotation.z, fore.rotation.z, wrist.rotation.z, rollG.rotation.x], grip = jawA.position.z;
+  if (motor.prevQ && !motor.skip && dt > 0) updateMotorSound(q.map((v, i) => Math.abs(v - motor.prevQ[i]) / dt / JOINT_MAX_SPEED), Math.abs(grip - motor.prevGrip) / dt / GRIP_MAX_SPEED);
+  else updateMotorSound([0], 0);
+  motor.prevQ = q; motor.prevGrip = grip; motor.skip = false;
+}
+startMotorSound();
+// the pitch deck tells us when this slide is shown or hidden
+// Hidden (another slide, another tab): animation frames stop, so the level would freeze where it was.
+// Mute and suspend the audio at once instead, and pick up again when shown.
+function setAudible(on) {
+  motor.visible = on;
+  if (!motor.ctx) return;
+  if (on) { motor.skip = true; motor.ctx.resume(); }
+  else { motor.level = 0; motor.gain.gain.cancelScheduledValues(motor.ctx.currentTime); motor.gain.gain.value = 0; motor.ctx.suspend(); }
+}
+addEventListener('message', e => { if (e.data && e.data.scene === 'visible') setAudible(!!e.data.on); });
+document.addEventListener('visibilitychange', () => setAudible(document.visibilityState === 'visible'));
+addEventListener('pagehide', () => setAudible(false));
+
+// ---------------------------------------------------------------- the decision guide
+const GUIDE = [
+  ['look', 'Look at the table', 'find_objects()'],
+  ['pick', 'Standing figure', 'pick(id)'],
+  ['open', 'Flat, or after a miss', 'pick(id, close=False)'],
+  ['lift', 'Missed, or unclear', 'lift_and_look()'],
+  ['nudge', 'Off-centre in the photo', 'nudge_jaws(…)'],
+  ['close', 'Centred in the photo', 'close_and_lift()'],
+  ['place', 'Put it down', 'place(x, z)'],
+  ['home', 'Done', 'home()'],
+];
+const ICON = {
+  look:  '<path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="12" cy="12" r="2.6"/>',
+  pick:  '<path d="M12 3v8"/><path d="M8.5 8 12 11.5 15.5 8"/><path d="M7 14v6M17 14v6M7 14h10"/>',
+  open:  '<path d="M7 9v11M17 9v11M7 9h10"/><path d="M12 3v3"/><circle cx="12" cy="16" r="1.6"/>',
+  lift:  '<path d="M12 20v-9"/><path d="M8.5 14 12 10.5 15.5 14"/><circle cx="12" cy="5" r="2.2"/>',
+  nudge: '<path d="M4 12h16"/><path d="M7.5 8.5 4 12l3.5 3.5M16.5 8.5 20 12l-3.5 3.5"/>',
+  close: '<path d="M9 6v12M15 6v12M9 6h6"/><path d="M5 12h2.5M16.5 12H19"/>',
+  place: '<path d="M12 3v9"/><path d="M8.5 9 12 12.5 15.5 9"/><path d="M5 15v5h14v-5"/>',
+  home:  '<path d="M4 11 12 4l8 7"/><path d="M6.5 9.5V20h11V9.5"/>',
+};
+const rowsEl = document.getElementById('rows');
+for (const [k, s, c] of GUIDE) rowsEl.insertAdjacentHTML('beforeend', `<div class="row" data-k="${k}"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg><div class="s">${s}</div><div class="c">${c}</div></div>`);
+
+// ---------------------------------------------------------------- the script: real tool calls, simplified motion
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+const OPEN = 0.05, HELD = 0.014, HOME = V(0.12, 0.2, 0.0);
+const REACH_MAX = 0.32, REACH_MIN = 0.1, JAW_WIDTH = 0.055;
+let SEG = [], endT = 0, endState = { tip: HOME.clone(), grip: 0.03, roll: 0 };
+let cur = null, held = null;      // held: the figure in the jaws once the queued segments have run
+function push(s) {
+  s.t0 = endT; endT += s.dur;
+  s.from = { tip: endState.tip.clone(), grip: endState.grip, roll: endState.roll };
+  endState = { tip: (s.tip || endState.tip).clone(), grip: s.grip ?? endState.grip, roll: s.roll ?? endState.roll };
+  s.to = endState; SEG.push(s);
+}
+function call(key, text, why, subs = []) { cur = { key, text, why, subs }; push({ call: cur, sub: null, dur: 0.01, log: { cls: 'call', t: '→ ' + text } }); }
+function step(sub, dur, o = {}) { push({ call: cur, sub, dur, ...o }); }
+function note(text, why, log) { call('look', text, why); step('', 2.2, { look: true, labels: true, log }); }
+
+const pos = f => [f.outer.position.x, f.outer.position.z];
+const floorOf = (x, z) => inBox(x, z) ? BOX.wall : 0;
+const graspOff = f => f.lying ? 0.006 : 0.017;
+function aboveY(f) { const [x, z] = pos(f); const y = floorOf(x, z) + f.top + 0.035; return inBox(x, z) ? Math.max(y, BOX.h + 0.03) : y; }
+
+function pick(f, { miss = false, close = true, label } = {}) {
+  const [x, z] = pos(f), base = floorOf(x, z);
+  const err = 0.017;              // the model's sideways error before the jaw look
+  const roll = f.lying ? Math.PI / 2 : 0;
+  const key = close ? 'pick' : 'open';
+  call(key, label || (close ? `pick(object_id=${f.id})` : `pick(object_id=${f.id}, close=False)`),
+    close ? 'Standing figure in easy reach: one call does the whole grasp.'
+          : (miss ? 'After a miss: stop with the jaws open and hand Claude a zoomed photo.' : 'Lying figure: too flat to trust blind. Stop open, show Claude a zoomed photo. The wrist turns so the jaws close across its short side.'),
+    close ? ['approach', 'jaw look', 'descend', 'verify', 'close', 'lift'] : ['approach', 'jaw look', 'descend', 'photo']);
+  step('approach', 1.7, { tip: V(x, aboveY(f), z + err), grip: OPEN, roll });
+  if (miss) step('jaw look', 1.1, { sight: true, tip: V(x, aboveY(f), z + err * 0.7), mark: ['info', 'tips hidden'] });
+  else step('jaw look', 1.1, { sight: true, tip: V(x, aboveY(f), z), mark: ['info', 'tips seen · −1.6 cm'] });
+  const res = miss ? err * 0.7 : 0;
+  step('descend', 1.3, { tip: V(x, base + graspOff(f), z + res) });
+  if (!close) { step('photo', 2.6, { pip: true, log: { cls: 'ok', t: '  ✓ jaws open around it · zoomed photo returned' } }); return; }
+  if (miss) {
+    step('verify', 1.3, { sight: true, mark: ['bad', '✗ 1.2 cm off · no close'] });
+    step('verify', 0.5, { log: { cls: 'bad', t: '  ✗ failed_step: "verify" · jaws off the object, held still' } });
+    return;
+  }
+  step('verify', 1.0, { sight: true, mark: ['ok', '✓'] });
+  step('close', 0.8, { grip: HELD, attach: f });
+  step('lift', 1.0, { tip: V(x, base + 0.08, z), log: { cls: 'ok', t: '  ✓ held (current 14) · jaw_look: camera · verify: seen' } });
+  held = f;
+}
+function closeAndLift(f, why) {
+  const [x, z] = pos(f);
+  call('close', 'close_and_lift()', why, ['close', 'lift']);
+  step('close', 0.8, { grip: HELD, attach: f });
+  step('lift', 1.0, { tip: V(x, floorOf(x, z) + 0.08, z), log: { cls: 'ok', t: '  ✓ held' } });
+  held = f;
+}
+function liftAndLook(f) {
+  const [x, z] = pos(f);
+  call('lift', 'lift_and_look()', 'A miss: no going home (30 s). Raise the jaws 10 cm so the camera sees the table under them, and look again from here.', ['lift 10 cm', 'look']);
+  step('lift 10 cm', 1.1, { tip: endState.tip.clone().add(V(0, 0.10, 0)) });
+  step('look', 1.6, { look: true, labels: true, log: { cls: 'ok', t: `  figure ${f.id} still at the same spot` } });
+}
+function nudge(f) {
+  const [x, z] = pos(f), base = floorOf(x, z);
+  const off = endState.tip.z - z;
+  call('nudge', `nudge_jaws(right_cm=${(-off * 100).toFixed(1)})`, 'Claude reads the photo: the figure sits to one side. Sideways moves always go up over its top, across, and back down, so it is never pushed.', ['up', 'across', 'down', 'photo']);
+  step('up', 0.8, { tip: V(x, base + f.top + 0.02, z + off) });
+  step('across', 0.8, { tip: V(x, base + f.top + 0.02, z) });
+  step('down', 0.8, { tip: V(x, base + graspOff(f), z) });
+  step('photo', 1.8, { pip: true, log: { cls: 'ok', t: '  ✓ figure between the jaw tips' } });
+}
+function pickWithRecovery(f, miss) {
+  if (miss) {
+    pick(f, { miss: true });
+    liftAndLook(f);
+    pick(f, { close: false, miss: true });
+    nudge(f);
+    closeAndLift(f, 'The photo shows the figure between the tips: close until the current says it is held, and lift.');
+  } else if (f.lying) {
+    pick(f, { close: false });
+    closeAndLift(f, 'Already centred in the photo: no nudge needed.');
+  } else pick(f);
+}
+function place(f, x, z) {
+  const base = floorOf(x, z);
+  call('place', `place(x=${x.toFixed(2)}, z=${z.toFixed(2)})`, 'Carry high, lower straight down, open wider than the grip, then rise to 15 cm so the next swing clears everything.',
+    ['carry', 'lower', 'open', 'rise 15 cm']);
+  step('carry', 2.2, { tip: V(x, 0.13, z) });
+  step('lower', 1.2, { tip: V(x, base + 0.012 + graspOff(f), z) });
+  step('open', 0.6, { grip: OPEN, release: f });
+  step('rise 15 cm', 1.2, { tip: V(x, 0.15, z), log: { cls: 'ok', t: `  ✓ placed figure ${f.id} ${inBox(x, z) ? 'in the box' : 'on the table'} · rose to 15 cm` } });
+  held = null;
+}
+function findObjects(log) {
+  call('look', 'find_objects()', 'Colour image finds the objects, the calibrated table plane places them, depth gives their height. Each comes with the call to use.', ['look']);
+  step('look', 2.4, { look: true, labels: true, log: log || { cls: 'ok', t: '  ' + FIGS.map(f => `${f.id} ${advice(f)}`).join(' · ') } });
+}
+function goHome() {
+  call('home', 'home()', 'Task finished: fold home (shoulder back first, then rolls, then elbow), then look once to confirm.', ['home', 'look']);
+  step('home', 2.6, { tip: HOME, grip: 0.03, roll: 0 });
+}
+
+// what find_objects would say about a figure
+function crowdedBy(f) {
+  const [x, z] = pos(f);
+  return FIGS.find(o => o !== f && o !== held && Math.hypot(o.outer.position.x - x, o.outer.position.z - z) < JAW_WIDTH);
+}
+function reachable(x, z) { const r = Math.hypot(x, z); return r <= REACH_MAX && r >= REACH_MIN; }
+const EMBED = document.body.classList.contains('embed');
+function advice(f) {
+  if (EMBED) { const [x, z] = pos(f); return inBox(x, z) ? 'in box' : f.lying ? 'lying' : 'standing'; }
+  const [x, z] = pos(f);
+  if (inBox(x, z)) return 'in the box';
+  if (!reachable(x, z)) return 'out of reach → ask the human';
+  const c = crowdedBy(f); if (c) return `crowded_by ${c.id} → move it first`;
+  return f.lying ? 'lying → pick(close=False)' : 'standing → pick';
+}
+
+function buildTour() {
+  findObjects({ cls: 'ok', t: '  3 objects: 1 red standing → pick(1) · 2 blue standing → pick(2) · 3 green lying → pick(3, close=False)' });
+  pick(fig1); place(fig1, 0.17, -0.17);
+  pickWithRecovery(fig2, true); place(fig2, 0.23, -0.22);
+  pickWithRecovery(fig3, false); place(fig3, 0.18, -0.24);
+  goHome();
+  step('look', 2.2, { look: true, labels: true, log: { cls: 'ok', t: '  ✓ box: 3 figures · table: pen · done' } });
+  step('', 2.5, {});
+}
+
+// ---------------------------------------------------------------- overlays
+const labs = [];
+function makeLab(cls) { const d = document.createElement('div'); d.className = cls; d.style.opacity = 0; document.body.appendChild(d); return d; }
+for (const f of FIGS) labs.push({ f, el: makeLab('lab') });
+const boxLab = makeLab('lab box');
+const mark = makeLab('mark'); mark.style.opacity = 0;
+let labelsOn = false;
+function project(v) { const p = v.clone().project(view); return [(p.x + 1) / 2 * innerWidth, (1 - p.y) / 2 * innerHeight, p.z < 1]; }
+const logEl = document.getElementById('log');
+function addLog(l) { const d = document.createElement('div'); d.className = l.cls; d.textContent = l.t; logEl.appendChild(d); while (logEl.children.length > (document.body.classList.contains('embed') ? 4 : 6)) logEl.firstChild.remove(); }
+function setHud(c, sub) {
+  document.getElementById('call').textContent = c.text;
+  document.getElementById('why').textContent = c.why;
+  const subs = document.getElementById('subs'); subs.innerHTML = '';
+  let seen = false;
+  for (const name of c.subs) { const sp = document.createElement('span'); sp.textContent = name; if (name === sub) { sp.className = 'on'; seen = true; } else if (!seen && sub) sp.className = 'done'; subs.appendChild(sp); }
+  for (const r of rowsEl.children) r.classList.toggle('on', r.dataset.k === c.key);
+}
+
+// ---------------------------------------------------------------- modes and playback
+let mode = 'tour', t = 0, playing = true, speed = 1, idx = -1, last = performance.now(), missNext = false;
+const ease = x => x < 0.5 ? 2 * x * x : 1 - (-2 * x + 2) ** 2 / 2;
+const idle = () => t >= endT;
+function reset() {
+  SEG = []; endT = 0; endState = { tip: HOME.clone(), grip: 0.03, roll: 0 }; held = null;
+  t = 0; idx = -1; logEl.innerHTML = ''; labelsOn = false; resetFigs();
+  setGrip(0.03); poseArm(HOME, 0); scene.updateMatrixWorld(); motor.skip = true;
+  if (mode === 'tour') buildTour();
+  else {
+    setHud({ key: '', text: 'Your turn', why: 'Click a figure: the arm runs the calls Claude would choose for it. Then click the box or the table to put it down. Drag figures to rearrange them, or push one out of reach.', subs: [] }, null);
+    findObjects();
+  }
+}
+function enter(s) {
+  if (s.attach) { s.attach.falling = false; rollG.attach(s.attach.outer); }
+  if (s.release) { const f = s.release; scene.attach(f.outer); f.rest = floorOf(f.outer.position.x, f.outer.position.z); f.vy = 0; f.falling = true; }
+  if (s.labels) labelsOn = true;
+  if (s.log) addLog(s.log);
+  setHud(s.call, s.sub);
+  if (s.mark) { mark.className = 'mark ' + s.mark[0]; mark.textContent = s.mark[1]; }
+}
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('#modes button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
+  document.body.classList.toggle('try', m === 'try');
+  document.getElementById('ask').innerHTML = m === 'tour' ? (EMBED ? '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg><b>Put the lego figures in the box.</b>' : 'Human: <b>"Put the lego figures in the box."</b>') : 'You are the human. <b>Click, drag, drop.</b>';
+  controls.autoRotate = m === 'tour';
+  reset();
+}
+
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (playing) t += dt * speed;
+  if (t >= endT) { if (mode === 'tour') reset(); else t = endT; }
+  while (idx + 1 < SEG.length && t >= SEG[idx + 1].t0) enter(SEG[++idx]);
+  const s = SEG[Math.max(0, idx)] || { from: endState, to: endState, t0: 0, dur: 1 };
+  const k = ease(Math.min(1, (t - s.t0) / s.dur));
+  const tip = s.from.tip.clone().lerp(s.to.tip, k);
+  poseArm(tip, s.from.roll + (s.to.roll - s.from.roll) * k);
+  setGrip(s.from.grip + (s.to.grip - s.from.grip) * k);
+  scene.updateMatrixWorld();
+  motorFrame(dt);
+
+  for (const f of FIGS) if (f.falling) { f.vy -= 9.8 * dt * speed; f.outer.position.y += f.vy * dt * speed; if (f.outer.position.y <= f.rest) { f.outer.position.y = f.rest; f.falling = false; } }
+
+  const active = !idle() || mode === 'tour';
+  const pulse = active && s.look ? Math.sin(Math.PI * k) : 0;
+  coneMat.opacity = 0.16 * pulse;
+  frustumMat.opacity = 0.18 + 0.5 * pulse;
+  const tw = tipWorld();
+  if (active && s.sight) {
+    const side = new THREE.Vector3(0, 0, 1).applyQuaternion(rollG.getWorldQuaternion(new THREE.Quaternion()));
+    const a = tw.clone().addScaledVector(side, 0.025), b = tw.clone().addScaledVector(side, -0.025);
+    sightGeo.setFromPoints([camPos, a, camPos, b]); sight.computeLineDistances(); sightMat.opacity = 0.9;
+  } else sightMat.opacity = 0;
+
+  for (const { f, el } of labs) {
+    const [x, y, vis] = project(f.outer.getWorldPosition(new THREE.Vector3()).add(V(0, f.top + 0.012, 0)));
+    el.style.left = x + 'px'; el.style.top = y + 'px';
+    const inHand = rollG.children.includes(f.outer);
+    el.style.opacity = labelsOn && vis && !inHand ? 0.9 : 0;
+    el.innerHTML = `<b>${f.id}</b><small>${advice(f)}</small>`;
+  }
+  { const [x, y, vis] = project(V(BOX.x, BOX.h + 0.02, BOX.z)); boxLab.style.left = x + 'px'; boxLab.style.top = y + 'px'; boxLab.style.opacity = labelsOn && vis ? 0.85 : 0;
+    const n = FIGS.filter(f => !rollG.children.includes(f.outer) && inBox(f.outer.position.x, f.outer.position.z)).length; boxLab.innerHTML = `<b>Box</b><small>${n} in it</small>`; }
+  { const [x, y] = project(tw); mark.style.left = x + 'px'; mark.style.top = y + 'px'; mark.style.opacity = active && s.mark ? 1 : 0; }
+
+  controls.update();
+  renderer.setScissorTest(false);
+  renderer.setViewport(0, 0, innerWidth, innerHeight);
+  renderer.render(scene, view);
+
+  const pf = document.getElementById('pipframe');
+  if (active && s.pip) {
+    const w = Math.round(Math.min(360, innerWidth * 0.26)), h = Math.round(w * 3 / 4), x = 20, y = innerHeight - 220 - h;
+    pipCam.position.copy(camPos); pipCam.lookAt(tw.clone().add(V(0, -0.01, 0))); pipCam.updateMatrixWorld();
+    renderer.setScissorTest(true); renderer.setScissor(x, y, w, h); renderer.setViewport(x, y, w, h);
+    for (const m of PT_MATS) m.uniforms.vpH.value = h * renderer.getPixelRatio();
+    renderer.render(scene, pipCam); renderer.setScissorTest(false);
+    for (const m of PT_MATS) m.uniforms.vpH.value = innerHeight * renderer.getPixelRatio();
+    Object.assign(pf.style, { display: 'block', left: (x - 2) + 'px', top: (innerHeight - y - h - 2) + 'px', width: (w + 4) + 'px', height: (h + 4) + 'px' });
+  } else pf.style.display = 'none';
+
+  document.getElementById('fill').style.width = (endT ? Math.min(1, t / endT) * 100 : 0) + '%';
+  document.getElementById('time').textContent = mode === 'tour' ? `${t.toFixed(0)} / ${endT.toFixed(0)} s` : (idle() ? (held ? `holding ${held.id}: click where to put it` : 'ready: click a figure') : 'moving…');
+  requestAnimationFrame(frame);
+}
+
+// ---------------------------------------------------------------- interaction (try mode)
+const ray = new THREE.Raycaster(); ray.params.Points.threshold = 0.003;
+const _unused = 0, ndc = new THREE.Vector2(), tablePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+function setNdc(e) { ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); ray.setFromCamera(ndc, view); }
+function figUnder(e) {
+  setNdc(e);
+  const hits = ray.intersectObjects(FIGS.map(f => f.outer), true);
+  if (!hits.length) return null;
+  return FIGS.find(f => { let o = hits[0].object; while (o) { if (o === f.outer) return true; o = o.parent; } return false; });
+}
+function tableHit(e) { setNdc(e); const p = new THREE.Vector3(); return ray.ray.intersectPlane(tablePlane, p) ? p : null; }
+let down = null, drag = null;
+renderer.domElement.addEventListener('pointerdown', e => {
+  down = { x: e.clientX, y: e.clientY };
+  if (mode !== 'try' || !idle() || held) return;
+  const f = figUnder(e);
+  if (f) { drag = { f, moved: false }; controls.enabled = false; }
+});
+renderer.domElement.addEventListener('pointermove', e => {
+  if (mode === 'try' && !drag) renderer.domElement.style.cursor = idle() && (held || figUnder(e)) ? 'pointer' : '';
+  if (!drag) return;
+  if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) drag.moved = true;
+  if (!drag.moved) return;
+  const p = tableHit(e); if (!p) return;
+  p.x = Math.max(-0.2, Math.min(0.9, p.x)); p.z = Math.max(-0.42, Math.min(0.42, p.z));
+  drag.f.outer.position.set(p.x, floorOf(p.x, p.z), p.z);
+});
+renderer.domElement.addEventListener('pointerup', e => {
+  const click = down && Math.hypot(e.clientX - down.x, e.clientY - down.y) <= 5;
+  controls.enabled = true;
+  if (mode !== 'try') { drag = null; return; }
+  if (drag) {
+    const f = drag.f, moved = drag.moved; drag = null;
+    if (moved) { labelsOn = true; addLog({ cls: 'call', t: `  (human moved figure ${f.id})` }); return; }
+    const [x, z] = pos(f);
+    if (!reachable(x, z)) { note(`find_objects(): figure ${f.id} reach.reachable = false`, 'Too far for the arm (it manages ~39 cm). Claude doesn\'t try: it asks the human to move it closer. Drag it back in.', { cls: 'bad', t: `  ✗ figure ${f.id}: out of reach → "could you move it closer?"` }); return; }
+    const c = crowdedBy(f);
+    if (c) { note(`find_objects(): figure ${f.id} crowded_by ${c.id}`, `Another figure sits within a jaw's width. Claude moves figure ${c.id} first, so the open jaws don't hit it. Click figure ${c.id}.`, { cls: 'bad', t: `  ✗ figure ${f.id} crowded_by ${c.id} (gap ${(Math.hypot(c.outer.position.x - x, c.outer.position.z - z) * 100).toFixed(1)} cm) → move ${c.id} first` }); return; }
+    pickWithRecovery(f, missNext);
+    if (missNext) { missNext = false; document.getElementById('miss').classList.remove('on'); }
+    return;
+  }
+  if (click && idle() && held) {
+    const p = tableHit(e); if (!p) return;
+    if (!reachable(p.x, p.z)) { addLog({ cls: 'bad', t: '  ✗ that spot is out of reach: pick a closer one' }); return; }
+    const other = FIGS.find(o => o !== held && Math.hypot(o.outer.position.x - p.x, o.outer.position.z - p.z) < 0.035);
+    if (other) { addLog({ cls: 'bad', t: `  ✗ too close to figure ${other.id}: the open jaws would hit it` }); return; }
+    place(held, p.x, p.z);
+  }
+});
+
+// ---------------------------------------------------------------- buttons
+document.getElementById('play').onclick = e => { playing = !playing; e.target.textContent = playing ? 'Pause' : 'Play'; };
+document.getElementById('restart').onclick = () => reset();
+document.getElementById('speed').onclick = e => { speed = speed === 1 ? 2 : speed === 2 ? 0.5 : 1; e.target.textContent = speed + '×'; };
+document.getElementById('find').onclick = () => { if (idle()) findObjects(); };
+document.getElementById('home').onclick = () => { if (idle()) { if (held) { addLog({ cls: 'bad', t: '  put the figure down first' }); return; } goHome(); } };
+document.getElementById('miss').onclick = e => { missNext = !missNext; e.currentTarget.classList.toggle('on', missNext); };
+document.querySelectorAll('#modes button').forEach(b => b.onclick = () => setMode(b.dataset.m));
+document.getElementById('track').onclick = e => {
+  if (mode !== 'tour') return;
+  const r = e.currentTarget.getBoundingClientRect();
+  seek((e.clientX - r.left) / r.width * endT);
+};
+function seek(target) {
+  reset();
+  while (idx + 1 < SEG.length && SEG[idx + 1].t0 <= target) { const s = SEG[++idx]; poseArm(s.to.tip, s.to.roll); scene.updateMatrixWorld(); enter(s); if (s.release) { s.release.outer.position.y = s.release.rest; s.release.falling = false; } }
+  t = target; motor.skip = true;
+};
+document.getElementById('sound').onclick = e => { motor.on = !motor.on; e.target.textContent = motor.on ? 'Sound on' : 'Sound off'; if (motor.ctx && motor.visible) motor.ctx.resume(); };
+addEventListener('resize', () => { for (const m of PT_MATS) m.uniforms.vpH.value = innerHeight * renderer.getPixelRatio(); view.aspect = innerWidth / innerHeight; view.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+setMode(new URLSearchParams(location.search).get('mode') === 'try' ? 'try' : 'tour');
+if (mode === 'tour' && new URLSearchParams(location.search).has('t')) seek(+new URLSearchParams(location.search).get('t'));
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

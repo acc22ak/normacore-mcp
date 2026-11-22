@@ -19,11 +19,84 @@ from dataclasses import dataclass, field
 IGNORED_STATUS_BITS = 0x01
 
 
+# Moves that start and end at rest use minimum-jerk easing (10u^3 - 15u^4 + 6u^5): speed
+# AND acceleration are zero at both ends, which reads as gentle and human. Its peak speed is
+# 1.875x the average (smoothstep was 1.5x); callers sizing durations should use this.
+EASED_PEAK = 1.875
+
+
+def min_jerk(u: float) -> float:
+    return u * u * u * (10 + u * (-15 + 6 * u))
+
+
+def min_jerk_rate(u: float) -> float:
+    """d/du of min_jerk."""
+    return 30 * u * u * (1 - u) * (1 - u)
+
+
 @dataclass
 class Point:
     t: float                    # seconds from start
     joints: dict[int, float]    # full pose (every joint)
-    ease: bool = False          # smoothstep the segment that ENDS at this point
+    stop: bool = False          # come to rest here (zero velocity for every joint)
+    vel: dict[int, float] = field(default_factory=dict)  # norm/s at this point, set by build
+
+
+def _segment_value(a: Point, b: Point, j: int, s: float) -> float:
+    p0, p1 = a.joints[j], b.joints[j]
+    v0, v1 = a.vel.get(j, 0.0), b.vel.get(j, 0.0)
+    if v0 == 0.0 and v1 == 0.0:
+        return p0 + (p1 - p0) * min_jerk(s)
+    dt = b.t - a.t
+    s2, s3 = s * s, s * s * s
+    return ((2 * s3 - 3 * s2 + 1) * p0 + (s3 - 2 * s2 + s) * dt * v0
+            + (-2 * s3 + 3 * s2) * p1 + (s3 - s2) * dt * v1)
+
+
+def _segment_rate(a: Point, b: Point, j: int, s: float) -> float:
+    """Velocity (norm/s) at fraction s of the segment."""
+    dt = b.t - a.t
+    if dt <= 0:
+        return 0.0
+    p0, p1 = a.joints[j], b.joints[j]
+    v0, v1 = a.vel.get(j, 0.0), b.vel.get(j, 0.0)
+    if v0 == 0.0 and v1 == 0.0:
+        return (p1 - p0) * min_jerk_rate(s) / dt
+    s2 = s * s
+    return ((6 * s2 - 6 * s) * p0 + (3 * s2 - 4 * s + 1) * dt * v0
+            + (-6 * s2 + 6 * s) * p1 + (3 * s2 - 2 * s) * dt * v1) / dt
+
+
+def _segment_peak(a: Point, b: Point, j: int) -> float:
+    dt = b.t - a.t
+    if dt <= 0:
+        # Zero time but a real change is an instant jump: infinitely fast, so it gets stretched.
+        return math.inf if abs(b.joints[j] - a.joints[j]) > 1e-9 else 0.0
+    if a.vel.get(j, 0.0) == 0.0 and b.vel.get(j, 0.0) == 0.0:
+        return EASED_PEAK * abs(b.joints[j] - a.joints[j]) / dt
+    return max(abs(_segment_rate(a, b, j, k / 16)) for k in range(17))
+
+
+def _assign_velocities(pts: list[Point]) -> None:
+    """Monotone cubic (PCHIP / Fritsch-Butland) tangents: the path flows through keyframes
+    without overshooting any of them, so it never leaves the range the keyframes span.
+    Rest at the first and last point, at `stop` points, and wherever a joint turns around."""
+    n = len(pts)
+    for i, p in enumerate(pts):
+        p.vel = {}
+        if i == 0 or i == n - 1 or p.stop:
+            continue
+        a, b = pts[i - 1], pts[i + 1]
+        h0, h1 = p.t - a.t, b.t - p.t
+        if h0 <= 0 or h1 <= 0:
+            continue
+        for j in p.joints:
+            d0 = (p.joints[j] - a.joints[j]) / h0
+            d1 = (b.joints[j] - p.joints[j]) / h1
+            if d0 * d1 <= 0:
+                continue  # reversal or a joint that holds still: rest here
+            w0, w1 = 2 * h1 + h0, h1 + 2 * h0
+            p.vel[j] = (w0 + w1) / (w0 / d0 + w1 / d1)
 
 
 @dataclass
@@ -36,30 +109,37 @@ class Timeline:
     def duration(self) -> float:
         return self.points[-1].t if self.points else 0.0
 
+    def _segment(self, t: float) -> tuple[Point, Point, float] | None:
+        pts = self.points
+        for a, b in zip(pts, pts[1:]):
+            if t <= b.t:
+                span = b.t - a.t
+                return a, b, (1.0 if span <= 0 else max(0.0, (t - a.t) / span))
+        return None
+
     def sample(self, t: float) -> dict[int, float]:
         pts = self.points
         if t <= pts[0].t:
             return dict(pts[0].joints)
-        for a, b in zip(pts, pts[1:]):
-            if t <= b.t:
-                span = b.t - a.t
-                u = 1.0 if span <= 0 else (t - a.t) / span
-                if b.ease:
-                    u = u * u * (3 - 2 * u)  # smoothstep: zero velocity at both ends
-                return {j: a.joints[j] + (b.joints[j] - a.joints[j]) * u for j in b.joints}
-        return dict(pts[-1].joints)
+        seg = self._segment(t)
+        if seg is None:
+            return dict(pts[-1].joints)
+        a, b, s = seg
+        return {j: _segment_value(a, b, j, s) for j in b.joints}
+
+    def velocity(self, t: float) -> dict[int, float]:
+        seg = self._segment(t) if self.points and t > self.points[0].t else None
+        if seg is None:
+            return {j: 0.0 for j in self.points[-1].joints} if self.points else {}
+        a, b, s = seg
+        return {j: _segment_rate(a, b, j, s) for j in b.joints}
 
     def peak_velocity(self) -> dict[int, float]:
-        """Max |velocity| per joint in norm/s (smoothstep peaks at 1.5x the average)."""
+        """Max |velocity| per joint in norm/s over the whole timeline."""
         peak: dict[int, float] = {}
         for a, b in zip(self.points, self.points[1:]):
-            dt = b.t - a.t
-            if dt <= 0:
-                continue
-            k = 1.5 if b.ease else 1.0
             for j in b.joints:
-                v = k * abs(b.joints[j] - a.joints[j]) / dt
-                peak[j] = max(peak.get(j, 0.0), v)
+                peak[j] = max(peak.get(j, 0.0), _segment_peak(a, b, j))
         return peak
 
 
@@ -69,7 +149,7 @@ def _key(j) -> int:
 
 def parse_waypoints(waypoints: list[dict]) -> tuple[list[tuple[float | None, dict[int, float], bool]], str]:
     """Accept either dense samples [{"t": s, "joints": {...}}] or keyframes
-    [{"joints": {...}, "duration_s": s}]. Returns ([(t_or_None, partial_joints, ease)], kind)."""
+    [{"joints": {...}, "duration_s": s, "stop": bool}]. Returns ([(t, partial_joints, stop)], kind)."""
     if not waypoints:
         raise ValueError("no waypoints")
     dense = all("t" in w for w in waypoints)
@@ -81,32 +161,36 @@ def parse_waypoints(waypoints: list[dict]) -> tuple[list[tuple[float | None, dic
     last_t = -1.0
     for w in waypoints:
         joints = {_key(j): float(v) for j, v in (w.get("joints") or {}).items()}
+        stop = bool(w.get("stop", False))
         if dense:
             wt = float(w["t"])
             if wt < last_t:
                 raise ValueError("dense waypoints must have non-decreasing 't'")
             last_t = wt
-            out.append((wt, joints, False))
+            out.append((wt, joints, stop))
         else:
             d = float(w.get("duration_s", 1.0))
             if d < 0:
                 raise ValueError("duration_s must be >= 0")
             t += d
-            out.append((t, joints, True))
+            out.append((t, joints, stop))
     return out, ("dense" if dense else "keyframes")
 
 
 def build_timeline(current: dict[int, float], waypoints: list[dict], *, speed_scale: float = 1.0,
                    max_vel: float = 1.0, limits: dict[int, tuple[float, float]] | None = None,
                    approach_vel: float = 0.3) -> Timeline:
-    """Full-pose timeline starting at `current`.
+    """Full-pose timeline starting at `current`, smooth enough to look gentle.
 
     - joints missing from a waypoint keep their previous value;
     - targets are clamped to [0, 1] and to optional soft `limits`;
     - times are divided by `speed_scale`;
-    - any segment that would exceed `max_vel` (norm/s, per joint, eased peak included)
-      is stretched in time instead (reported in `stretched_segments`);
-    - a smooth approach from `current` to the first waypoint is prepended, at <= approach_vel.
+    - starts and ends at rest; flows through intermediate waypoints (monotone cubic, no
+      overshoot) except where a joint turns around or a keyframe has "stop": true;
+      stop-to-stop moves use minimum-jerk easing;
+    - any segment that would exceed `max_vel` (norm/s, per joint, true peak) is stretched
+      in time instead (reported in `stretched_segments`);
+    - recordings get a gentle approach from `current` to their first sample, at <= approach_vel.
     """
     if speed_scale <= 0:
         raise ValueError("speed_scale must be > 0")
@@ -116,7 +200,7 @@ def build_timeline(current: dict[int, float], waypoints: list[dict], *, speed_sc
 
     pose = dict(current)
     raw_pts: list[Point] = []
-    for t, joints, ease in parsed:
+    for t, joints, stop in parsed:
         for j, v in joints.items():
             if j not in pose:
                 raise ValueError(f"joint {j} is not on this bus")
@@ -125,35 +209,70 @@ def build_timeline(current: dict[int, float], waypoints: list[dict], *, speed_sc
             if abs(c - v) > 1e-9:
                 clamped[j] = f"{v:.3f} -> {c:.3f} (limits [{lo}, {hi}])"
             pose[j] = c
-        raw_pts.append(Point(t / speed_scale, dict(pose), ease))
+        raw_pts.append(Point(t / speed_scale, dict(pose), stop))
 
-    pts = [Point(0.0, dict(current))]
+    pts = [Point(0.0, dict(current), stop=True)]
     if kind == "dense":
-        # Recorded motion: first glide (eased, <= approach_vel) to where the recording starts,
-        # then play the samples with their original spacing.
+        # Recorded motion: first glide (at rest at both ends, <= approach_vel) to where the
+        # recording starts, then play the samples with their original spacing.
         first = raw_pts[0]
         dist = max((abs(first.joints[j] - current[j]) for j in current), default=0.0)
-        approach = (1.5 * dist / approach_vel) if dist > 1e-6 else 0.0   # eased -> 1.5x peak
-        pts.append(Point(approach, first.joints, ease=True))
+        approach = (EASED_PEAK * dist / approach_vel) if dist > 1e-6 else 0.0
+        if approach > 0:
+            pts.append(Point(approach, first.joints, stop=True))
+        else:
+            pts[0] = Point(0.0, dict(first.joints), stop=True)
         for p in raw_pts[1:]:
-            pts.append(Point(approach + (p.t - first.t), p.joints, p.ease))
+            pts.append(Point(approach + (p.t - first.t), p.joints, p.stop))
     else:
         # Keyframes: each duration_s already covers the move from the previous pose
         # (the first one from the current pose); max_vel below stretches it if too fast.
         pts.extend(raw_pts)
 
-    # Enforce max velocity by stretching segments.
-    stretched = 0
-    fixed = [pts[0]]
-    for a, b in zip(pts, pts[1:]):
-        dt = b.t - a.t
-        k = 1.5 if b.ease else 1.0
-        need = max((k * abs(b.joints[j] - a.joints[j]) / max_vel for j in b.joints), default=0.0)
-        if need > dt + 1e-9:
-            dt = need
-            stretched += 1
-        fixed.append(Point(fixed[-1].t + max(dt, 0.0), b.joints, b.ease))
-    return Timeline(fixed, stretched, clamped)
+    # Drop zero-length duplicates so tangents stay finite.
+    merged = [pts[0]]
+    for p in pts[1:]:
+        if p.t - merged[-1].t <= 1e-9 and p.joints == merged[-1].joints:
+            merged[-1].stop = merged[-1].stop or p.stop
+            continue
+        merged.append(p)
+    pts = merged
+
+    # Enforce max velocity by stretching segments; tangents depend on timing, so iterate.
+    stretched_idx: set[int] = set()
+    for _ in range(8):
+        _assign_velocities(pts)
+        changed = False
+        new_t = [pts[0].t]
+        for i, (a, b) in enumerate(zip(pts, pts[1:])):
+            dt = b.t - a.t
+            peak = max((_segment_peak(a, b, j) for j in b.joints), default=0.0)
+            if peak > max_vel * (1 + 1e-6):
+                dt = dt * peak / max_vel if dt > 0 and math.isfinite(peak) else EASED_PEAK * max(
+                    (abs(b.joints[j] - a.joints[j]) for j in b.joints), default=0.0) / max_vel
+                stretched_idx.add(i)
+                changed = True
+            new_t.append(new_t[-1] + max(dt, 0.0))
+        for p, t in zip(pts, new_t):
+            p.t = t
+        if not changed:
+            break
+    else:
+        # Did not settle: fall back to stop-to-stop minimum-jerk segments, whose peak is
+        # exact, so the speed cap is guaranteed.
+        for p in pts:
+            p.stop = True
+        new_t = [pts[0].t]
+        for i, (a, b) in enumerate(zip(pts, pts[1:])):
+            need = EASED_PEAK * max((abs(b.joints[j] - a.joints[j]) for j in b.joints), default=0.0) / max_vel
+            dt = max(b.t - a.t, need)
+            if dt > b.t - a.t + 1e-9:
+                stretched_idx.add(i)
+            new_t.append(new_t[-1] + dt)
+        for p, t in zip(pts, new_t):
+            p.t = t
+    _assign_velocities(pts)
+    return Timeline(pts, len(stretched_idx), clamped)
 
 
 @dataclass

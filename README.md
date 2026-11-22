@@ -7,30 +7,19 @@ and **move the ElRobot follower arm** through the NormaCore Station API.
  Claude Code / Codex ──MCP stdio──► server.py ──TCP :8888──► station (MacBook) ──USB──► arms + cameras
 ```
 
-Tools: `look`, `list_cameras`, `get_robot_state`, `move_joints`, `nudge_joints`,
-`set_gripper`, `hold`, `relax` (safe stop: torque off), `teach_mode` (optional: the leader arm drives the
-follower), `set_camera_role` (name cameras "desk" / "gripper" so
-`look("desk")` works; saved in `data/cameras.json`).
+**Normal use: say what to move where** ("put the Lego figure next to the green pen"). Claude runs the
+pick-and-place loop: `find_objects` (objects found in the depth camera's color image, with positions and how to
+grasp each) → `pick` (from above; it checks the jaws before closing) → `place` / `place_near` → `home`.
+For small or flat objects it stops with the jaws open, looks at a zoomed photo, adjusts with `nudge_jaws` and then
+`close_and_lift`. After a miss it uses `lift_and_look` and tries again from where it is.
 
-**Fast mode:** `go_to` (one smooth move) and `play_motion` (a whole sequence of keyframes or a dense recording,
-with `speed_scale`) run inside the server at ~20 Hz with safety checks, so Claude plans once and checks once instead
-of thinking between every step. `stop_motion`, `hold` and `relax` stop a running motion. `move_joints`/`nudge_joints`
-stay as the slow, careful mode for learning.
+This needs the RealSense depth camera (`realsense-bridge/`, run with `sudo`), mounted looking **down at the table
+at 50° or steeper**, and three calibrations: camera pose (`arm_fit.py`), reach (`calibrate_reach`) and the sideways
+jaw offset (measured by `pick` itself). `CLAUDE.md` has the workflow, the rules and the tool map.
 
-**Simplest use: just name the task.** Say "move the cube from spot A to spot B". If Claude has no skill for it, it
-**learns it by itself**: `start_attempt`, solves it slowly with both cameras, verifies, then `save_attempt_as_skill` turns
-its own attempt into a fast skill (thinking pauses and small steps removed: a ~27 s attempt became a ~3–6 s skill in
-tests). Next time it runs the skill in one call. Say "practise it" to have it speed itself up (it alternates A→B and
-B→A, so nobody has to reset the cube).
-
-**Or show it with the leader arm (optional):** "teach mode on" → move the leader arm through the task → "teach mode
-off, save it as cube_a_to_b". No recording step: teach mode marks the start and end, and `save_attempt_as_skill`
-keeps the shape of your path. Then it practises exactly like a self-learned skill.
-
-**Skills and speed:** `start_attempt` / `save_attempt_as_skill` learn, `list_skills` shows them, `run_skill` plays one in one call; after each run Claude
-`look`s once and calls `report_skill_result`. Every **2 successes in a row** raise the speed one level
-(0.5 → 0.75 → 1.0 → …), a failure lowers it. Skills live in `data/skills/`, runs in `data/runs.jsonl`.
-Mark the object spots on the table (tape corner guides): fast replays don't look while moving.
+Also there, for special cases: joint-level tools (`move_joints`, `go_to`, `play_motion`, ...), replayable skills
+(`start_attempt` / `save_attempt_as_skill` / `run_skill`: record a motion once and replay it fast, for objects on
+fixed marked spots), `teach_mode` (the leader arm drives the follower), and `hold` / `relax` / `estop.py`.
 
 ---
 
@@ -126,7 +115,7 @@ claude mcp add normacore \
   -e FOLLOWER_BUS=<FOLLOWER_SERIAL> \
   -- $PWD/.venv/bin/python $PWD/server.py
 ```
-Then in `claude`: `/mcp` should list `normacore` with 18 tools.
+Then in `claude`: `/mcp` should list `normacore` with 31 tools.
 Then name the cameras once: ask Claude to `look`, tell which picture is which, and `set_camera_role` them
 (or set `CAMERAS`). Station itself has no idea which camera is the gripper cam. Roles are saved by the
 camera's USB vendor:product:serial, so they survive replugging it or moving it to another port.
@@ -154,7 +143,8 @@ env = { NORMA_CORE_REPO = "/Users/you/norma-core", STATION_HOST = "localhost", F
 | `CAMERAS` | — | default camera roles, e.g. `desk=32e6:9228:202604081837,gripper=3f2a` (`camera_id` from `list_cameras`, queue id or queue hash prefix); `data/cameras.json` wins |
 | `CAMERAS_FILE` | `data/cameras.json` | where `set_camera_role` saves roles |
 | `MAX_VEL_NORM` | `0.5` | fast-mode speed cap per joint (normalized range per second); untuned, start low |
-| `MOTION_RATE_HZ` | `20` | fast-mode control rate |
+| `MOTION_RATE_HZ` | `20` | fast-mode control rate (goals per second). 30 overloaded the station with a camera + 2 arms (late ticks, tracking aborts) |
+| `SERVO_SPEED_HEADROOM` | `1.2` | servo speed cap = planned peak x this, so the servo never flattens the smooth curve |
 | `CURRENT_LIMIT` / `CURRENT_LIMITS` | `100` / — | fast-mode collision limit (same units as Station's current threshold); per motor e.g. `8:40,5:60` |
 | `TRACK_ERR_MAX` / `TRACK_ERR_TICKS` | `0.10` / `5` | abort when a joint lags its target this much for this many ticks |
 | `SKILLS_DIR` / `RUNS_FILE` | `data/skills` / `data/runs.jsonl` | where skills and the run log are saved |
@@ -202,20 +192,21 @@ overwritten by mirrored goals).
 
 ---
 
-## 4. First run: keep a hand near the arm
+## 4. First run: keep a hand near the power
 
-Prompt Claude with something like:
-> Use the normacore tools. Look through both cameras and describe the scene. Then get the robot state,
-> open the gripper, and move it slowly (nudges ≤ 0.05) toward the red cube. Look after every move.
-> If anything looks wrong, call relax.
+1. Start Station, the RealSense bridge (`sudo .venv/bin/python bridge.py` in `realsense-bridge/`) and the e-stop.
+   Keep the Mac on AC power.
+2. Calibrate once per camera position (ask Claude: "calibrate the depth camera", then "calibrate the reach"), with
+   the table clear on one side.
+3. Put an object 20-35 cm in front of the arm and say, for example:
+   > Put the Lego figure next to the green pen.
 
 Tips:
-- Find out which direction each joint moves with small `nudge_joints` calls (±0.05) and `look`.
-  Write the mapping into a `CLAUDE.md` (e.g. "shoulder +: arm leans forward"). Claude gets much better with it.
-- `relax` = torque off, and **the arm drops**. Hold it, or call `hold` first.
-- Camera frames are ~10 Hz and moves take ~0.4 s, so this is a slow look → think → move loop, not real-time control.
-  For fast skills, record leader→follower demos and train SmolVLA (`software/ai/smolvla_py`).
-  Claude can then plan the steps and the policy executes them.
+- Objects further than ~36 cm from the base can only be reached at a shallow jaw angle; beyond ~39 cm not at all.
+- Leave a jaw's width (about 3.5 cm) between objects, or Claude has to move one out of the way first.
+- `relax` = torque off, and **the arm drops**. `hold` freezes it in place.
+- If a pick misses, Claude lifts the jaws, looks again and retries from there. Results are logged in
+  `data/runs.jsonl`, and the camera frames it used in `data/frames/`.
 
 ## Offline self-test (no robot needed)
 ```bash

@@ -6,6 +6,8 @@ A "sample" is (t_seconds, {joint_id: norm}, {joint_id: raw}).
 
 from __future__ import annotations
 
+from motion import EASED_PEAK
+
 # Practice ladder: a new skill starts slow; 2 successes in a row -> next level;
 # a failure -> one level down. (Team decision: 2 successes, not 3.)
 SPEED_LEVELS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
@@ -150,13 +152,13 @@ def simplify_path(points: list[tuple], gripper_id: int, tol: float = 0.02, grip_
 
 def timed_keyframes(points: list[tuple], base_vel: float, min_s: float = 0.2) -> list[dict]:
     """Keyframes for play_motion: each move lasts long enough to keep the eased peak speed
-    (1.5x average) at base_vel at speed_scale 1.0. The first pose is the start, so it's skipped."""
+    (EASED_PEAK x average) at base_vel at speed_scale 1.0. The first pose is the start, so it's skipped."""
     out = []
     for a, b in zip(points, points[1:]):
         dist = max(abs(b[0][j] - a[0][j]) for j in b[0])
         out.append({"joints": {str(j): round(v, 4) for j, v in b[0].items()},
                     "raw": {str(j): int(v) for j, v in b[1].items()},
-                    "duration_s": round(max(min_s, 1.5 * dist / base_vel), 3)})
+                    "duration_s": round(max(min_s, EASED_PEAK * dist / base_vel), 3)})
     return out
 
 

@@ -22,13 +22,39 @@ tl = M.build_timeline(cur, [{"joints": {"1": 0.7}, "duration_s": 2.0}], max_vel=
 check("keyframe duration kept when slow enough", approx(tl.duration, 2.0), tl.duration)
 check("unlisted joints hold", tl.sample(1.0)[2] == 0.5 and tl.sample(1.0)[8] == 0.9)
 check("eased midpoint is halfway", approx(tl.sample(1.0)[1], 0.6))
-check("eased start is slow (smoothstep)", tl.sample(0.2)[1] - 0.5 < 0.2 * 0.1, tl.sample(0.2)[1])
+check("eased start is slow (minimum jerk)", tl.sample(0.2)[1] - 0.5 < 0.2 * 0.1, tl.sample(0.2)[1])
+check("starts and ends at rest", abs(tl.velocity(0.001)[1]) < 1e-3 and abs(tl.velocity(1.999)[1]) < 1e-3)
+_v = lambda t: tl.velocity(t)[1]
+_acc0 = (_v(0.02) - _v(0.01)) / 0.01
+check("acceleration starts near zero (no jolt)", abs(_acc0) < 0.05, _acc0)
 check("end reached", approx(tl.sample(5.0)[1], 0.7))
-check("peak velocity = 1.5x average for eased", approx(tl.peak_velocity()[1], 1.5 * 0.2 / 2.0))
+check("peak velocity = EASED_PEAK x average", approx(tl.peak_velocity()[1], M.EASED_PEAK * 0.2 / 2.0))
 
 tl = M.build_timeline(cur, [{"joints": {"1": 0.9}, "duration_s": 0.1}], max_vel=0.5)
-check("too-fast segment is stretched to max_vel", approx(tl.duration, 1.5 * 0.4 / 0.5) and tl.stretched_segments == 1, tl.duration)
+check("too-fast segment is stretched to max_vel", approx(tl.duration, M.EASED_PEAK * 0.4 / 0.5) and tl.stretched_segments == 1, tl.duration)
 check("peak never exceeds max_vel", max(tl.peak_velocity().values()) <= 0.5 + 1e-9)
+
+tl = M.build_timeline(cur, [{"joints": {"1": 0.9}, "duration_s": 0.0}], max_vel=0.5)
+check("zero duration_s is stretched, never an instant jump", approx(tl.duration, M.EASED_PEAK * 0.4 / 0.5), tl.duration)
+
+# flowing through keyframes
+tl = M.build_timeline(cur, [{"joints": {"1": 0.6}, "duration_s": 1.0}, {"joints": {"1": 0.7}, "duration_s": 1.0}], max_vel=10)
+check("flows through a middle keyframe in the same direction", tl.velocity(1.0)[1] > 0.05, tl.velocity(1.0)[1])
+check("still reaches each keyframe on time", approx(tl.sample(1.0)[1], 0.6) and approx(tl.sample(2.0)[1], 0.7))
+check("no overshoot past the keyframes", all(0.5 - 1e-9 <= tl.sample(k / 100)[1] <= 0.7 + 1e-9 for k in range(201)))
+_vs = [tl.velocity(1.0 + d)[1] for d in (-1e-4, 1e-4)]
+check("velocity continuous at the keyframe", abs(_vs[0] - _vs[1]) < 1e-3, _vs)
+
+tl = M.build_timeline(cur, [{"joints": {"1": 0.6}, "duration_s": 1.0, "stop": True}, {"joints": {"1": 0.7}, "duration_s": 1.0}], max_vel=10)
+check('"stop": true rests at that keyframe', abs(tl.velocity(1.0)[1]) < 1e-6)
+
+tl = M.build_timeline(cur, [{"joints": {"8": 0.2}, "duration_s": 1.0}, {"joints": {"8": 0.8}, "duration_s": 1.0}], max_vel=10)
+check("rests where a joint turns around", abs(tl.velocity(1.0)[8]) < 1e-6)
+check("turnaround never overshoots", min(tl.sample(k / 100)[8] for k in range(201)) >= 0.2 - 1e-9)
+
+tl = M.build_timeline(cur, [{"joints": {"1": 0.8}, "duration_s": 0.3}, {"joints": {"1": 0.95}, "duration_s": 0.2}], max_vel=0.4)
+_peak = max(abs(tl.velocity(k / 200 * tl.duration)[1]) for k in range(201))
+check("flowing path never exceeds max_vel (sampled)", _peak <= 0.4 * 1.02, _peak)
 
 tl = M.build_timeline(cur, [{"joints": {"1": 0.6}, "duration_s": 2.0}], speed_scale=2.0, max_vel=10)
 check("speed_scale 2 halves the time", approx(tl.duration, 1.0))
@@ -42,12 +68,12 @@ check("targets clamped to soft limits and 0..1", approx(tl.sample(9)[1], 0.8) an
 # --- dense recordings ---
 dense = [{"t": 0.0, "joints": {"1": 0.6}}, {"t": 0.5, "joints": {"1": 0.65}}, {"t": 1.0, "joints": {"1": 0.7}}]
 tl = M.build_timeline(cur, dense, max_vel=10, approach_vel=0.2)
-appr = 1.5 * 0.1 / 0.2
+appr = M.EASED_PEAK * 0.1 / 0.2
 check("dense: gentle approach to first sample", approx(tl.points[1].t, appr) and approx(tl.points[1].joints[1], 0.6))
 check("dense: original spacing kept after approach", approx(tl.duration, appr + 1.0))
-check("dense samples are linear (not eased)", approx(tl.sample(appr + 0.25)[1], 0.625))
+check("dense samples flow smoothly between samples", abs(tl.sample(appr + 0.25)[1] - 0.625) < 0.01 and tl.velocity(appr + 0.5)[1] > 0.05, tl.sample(appr + 0.25)[1])
 tl = M.build_timeline({1: 0.6, 2: 0.5, 8: 0.9}, dense, max_vel=10)
-check("dense: no approach when already at start", approx(tl.points[1].t, 0.0) and approx(tl.duration, 1.0))
+check("dense: no approach when already at start", approx(tl.points[0].t, 0.0) and approx(tl.points[1].t, 0.5) and approx(tl.duration, 1.0))
 
 # --- bad input ---
 for name, wps in [("empty", []), ("mixed", [{"t": 0, "joints": {}}, {"joints": {}, "duration_s": 1}]),

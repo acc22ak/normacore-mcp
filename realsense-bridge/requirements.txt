@@ -1,0 +1,4 @@
+pyrealsense2-macosx==2.56.5
+numpy
+pillow
+websockets>=12

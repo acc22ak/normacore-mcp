@@ -13,7 +13,7 @@
    COLOUR white / black, concrete planes, safety yellow only on the API boundary
    TYPE Hanken Grotesk 500 + Hanken Grotesk, JetBrains Mono for queue names and code
    LAYOUT modest title top-left, full-width plate under it; sections below as text beside tables */
-:root{color-scheme:light dark;--bg:light-dark(#ffffff,#1a1a19);--ink:light-dark(#111111,#ececea);--mute:light-dark(#5a5a57,#a3a39e);--plane:light-dark(#d8d8d4,#2b2b29);--plane2:light-dark(#ececea,#232321);--rule:light-dark(#111111,#ececea);--hair:light-dark(#c4c4bf,#3d3d3a);--yel:#ffe600;--onyel:#111111}
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#1a1a19);--ink:light-dark(#111111,#ececea);--mute:light-dark(#5a5a57,#a3a39e);--plane:light-dark(#d8d8d4,#2b2b29);--plane2:light-dark(#ececea,#232321);--rule:light-dark(#111111,#ececea);--hair:light-dark(#c4c4bf,#3d3d3a);--yel:#ffe600;--onyel:#111111;--obj:#ff8a3d}
 :root[data-theme=light]{color-scheme:light}
 :root[data-theme=dark]{color-scheme:dark}
 *{box-sizing:border-box;min-width:0}
@@ -64,6 +64,11 @@ pre{overflow-x:auto;background:var(--plane);padding:16px 18px;margin:0;font:14px
 .copy{position:absolute;top:8px;right:8px;min-height:36px;padding:6px 14px;font:inherit;font-size:14px;background:var(--bg);color:var(--ink);border:1px solid var(--rule);border-radius:2px;cursor:pointer}
 .copy:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 .note{font-size:15px;color:var(--mute)}
+.shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:20px;margin-top:14px}
+.shots img{width:100%;height:auto;display:block;border:1px solid var(--rule)}
+.plate.dark{background:#141413;color:#f2f2ee;--plane:#232321;--plane2:#2d2d2a;--hair:#3e3e3a;--mute:#9d9d97}
+.plate.dark svg{color:#f2f2ee}
+.cols .plate svg{min-width:0}
 .pill{display:inline-block;font-size:13px;padding:1px 8px;border:1px solid var(--rule);border-radius:2px;white-space:nowrap}
 @media(max-width:600px){table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-block:10px;border-bottom:1px solid var(--hair)}.stack td{display:flow-root;border:0;padding:3px 0;padding-inline-start:7.5em}.stack td::before{content:attr(data-l);float:inline-start;width:7em;margin-inline-start:-7.5em;color:var(--mute)}.stack td:empty{display:none}}
 </style>
@@ -75,13 +80,23 @@ pre{overflow-x:auto;background:var(--plane);padding:16px 18px;margin:0;font:14px
   <div class="wrap">
     <h1>NormaCore Station: how the pieces fit</h1>
     <p class="lede">One Rust binary owns the hardware. Drivers write everything they see into NormFS queues. The web UI, the desktop app and your own Python or Go code all reach those same queues through one API on ports 8888 and 8889.</p>
-    <p class="meta">Notes for the ElRobot hackathon · repos <code>norma-core</code> at <code>6b494f7</code>, <code>normacore-mcp</code> at <code>cecc188</code> · updated 21 Nov 2026</p>
+    <p class="meta">Notes for the ElRobot hackathon · repos <code>norma-core</code> at <code>6b494f7</code>, <code>normacore-mcp</code> at <code>cecc188</code> · updated 22 Nov 2026 (new: <a href="#now" style="color:inherit">How it works now</a>)</p>
   </div>
 </header>
 
 <nav class="toc" id="toc" aria-label="Contents">
   <h2>Contents</h2>
   <ol>
+    <li><a href="#now">How it works now (22 Nov)</a>
+      <ol>
+        <li><a href="#now-pieces">The running pieces</a></li>
+        <li><a href="#now-sees">What the camera sees</a></li>
+        <li><a href="#now-loop">Pick and place loop</a></li>
+        <li><a href="#now-pick">Inside one pick call</a></li>
+        <li><a href="#now-calib">Calibrations</a></li>
+        <li><a href="#now-changed">What changed, and why</a></li>
+        <li><a href="#now-status">Where it stands</a></li>
+      </ol></li>
     <li><a href="#architecture">Architecture diagram</a></li>
     <li><a href="#paths">State and command paths</a>
       <ol><li><a href="#go-bug">Known bug: Go SendCommands</a></li></ol></li>
@@ -95,6 +110,10 @@ pre{overflow-x:auto;background:var(--plane);padding:16px 18px;margin:0;font:14px
     <li><a href="#mcp-tools">MCP tools reference</a></li>
     <li><a href="#cameras">Cameras: gripper and desk</a>
       <ol><li><a href="#camera-processing">What the station does to frames</a></li><li><a href="#mcp-cameras">How the MCP server reads them</a></li></ol></li>
+    <li><a href="#self-calibration">Self-calibration with the camera</a>
+      <ol><li><a href="#calib-loops">Three agent loops worth building</a></li></ol></li>
+    <li><a href="#failures">Why picks still fail</a>
+      <ol><li><a href="#fail-status">Update: what is fixed</a></li><li><a href="#grab-ball">Grab ball in the 3D view</a></li><li><a href="#fail-evidence">What the numbers say</a></li><li><a href="#fail-causes">Causes</a></li><li><a href="#fail-fixes">What to change</a></li></ol></li>
     <li><a href="#plan">Team plan: teach, then tell</a>
       <ol>
         <li><a href="#learning-loop">Learning loop</a></li>
@@ -108,7 +127,276 @@ pre{overflow-x:auto;background:var(--plane);padding:16px 18px;margin:0;font:14px
   </ol>
 </nav>
 
-<section id="architecture" class="band" style="border-top:0">
+<section id="now" class="band" style="border-top:0">
+  <div class="wrap">
+    <h2>How it works now (22 Nov): tell it what to move where</h2>
+    <p class="lede">Claude picks up objects by looking through a RealSense depth camera, not by replaying recorded motions. Code does all the measuring: it finds objects in the colour image, places them on the calibrated table plane, computes inverse kinematics and checks where the jaws really are. Claude decides what to do, reads the photos and notices when something looks wrong. It never guesses joint angles.</p>
+    <p class="note" style="margin-top:12px">This section replaces the earlier plans further down where they disagree. The marker-based workspace map, the desk webcam and the "teach, then tell" skill replay are now optional or unused. The full hand-off for agents is <code>normacore-mcp/CLAUDE.md</code>.</p>
+
+    <h3 id="now-pieces" style="margin-top:28px">The running pieces</h3>
+<figure style="margin:14px 0 20px"><div class="plate dark"><svg viewBox="0 0 1400 560" role="img" aria-label="Claude Code calls the normacore-mcp server, which reads the RealSense camera through a bridge and drives the arm through NormaCore Station; the station viewer shows the arm and point cloud using the shared calibration file.">
+    <defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="currentColor"/></marker></defs>
+    <g font-size="17" fill="currentColor">
+      <!-- column A -->
+      <rect x="20" y="30" width="220" height="90" fill="var(--plane)"/>
+      <text x="38" y="62" font-weight="700">Human</text>
+      <text x="38" y="90" fill="var(--mute)" font-size="15">"put the figure next</text>
+      <text x="38" y="109" fill="var(--mute)" font-size="15">to the pen"</text>
+      <line x1="130" y1="120" x2="130" y2="168" stroke="currentColor" stroke-width="2" marker-end="url(#a1)"/>
+      <rect x="20" y="170" width="220" height="100" fill="var(--plane)"/>
+      <text x="38" y="204" font-weight="700">Claude Code</text>
+      <text x="38" y="232" fill="var(--mute)" font-size="15">decides, reads photos,</text>
+      <text x="38" y="251" fill="var(--mute)" font-size="15">never guesses angles</text>
+      <rect x="20" y="420" width="220" height="100" fill="none" stroke="currentColor" stroke-dasharray="5 5"/>
+      <text x="38" y="452" font-weight="700" font-family="JetBrains Mono" font-size="15">calibration.json</text>
+      <text x="38" y="480" fill="var(--mute)" font-size="15">camera pose + joint zeros</text>
+      <text x="38" y="499" fill="var(--mute)" font-size="15">(fitted by arm_fit.py)</text>
+      <!-- MCP -->
+      <line x1="240" y1="220" x2="318" y2="220" stroke="currentColor" stroke-width="2" marker-end="url(#a1)"/>
+      <text x="248" y="208" font-size="14" fill="var(--mute)">MCP tools</text>
+      <rect x="320" y="30" width="380" height="330" fill="var(--plane2)" stroke="currentColor" stroke-width="2"/>
+      <rect x="320" y="30" width="10" height="330" fill="var(--yel)"/>
+      <text x="350" y="64" font-weight="700" font-size="20">normacore-mcp <tspan font-weight="400" fill="var(--mute)" font-size="16">· our code · :8790</tspan></text>
+      <text x="350" y="100" font-size="15" font-family="JetBrains Mono">find_objects · pick · nudge_jaws</text>
+      <text x="350" y="122" font-size="15" font-family="JetBrains Mono">close_and_lift · lift_and_look</text>
+      <text x="350" y="144" font-size="15" font-family="JetBrains Mono">place · place_near · home</text>
+      <line x1="350" y1="164" x2="680" y2="164" stroke="var(--hair)"/>
+      <text x="350" y="194"><tspan font-weight="700">depth.py</tspan> <tspan fill="var(--mute)">objects, table plane, jaw tips</tspan></text>
+      <text x="350" y="226"><tspan font-weight="700">arm_model.py</tspan> <tspan fill="var(--mute)">kinematics + IK</tspan></text>
+      <text x="350" y="258"><tspan font-weight="700">motion engine</tspan> <tspan fill="var(--mute)">20 Hz, aborts on drift</tspan></text>
+      <text x="350" y="290"><tspan font-weight="700">safety</tspan> <tspan fill="var(--mute)">e-stop latch, teleop guard</tspan></text>
+      <text x="350" y="322"><tspan font-weight="700">data/</tspan> <tspan fill="var(--mute)">every run + its frames</tspan></text>
+      <!-- station -->
+      <rect x="800" y="30" width="260" height="130" fill="var(--plane)"/>
+      <text x="818" y="64" font-weight="700" font-size="20">NormaCore Station</text>
+      <text x="818" y="92" fill="var(--mute)" font-size="15">one Rust process, owns</text>
+      <text x="818" y="111" fill="var(--mute)" font-size="15">servos and USB cameras</text>
+      <text x="818" y="139" font-size="14" font-family="JetBrains Mono" fill="var(--mute)">:8888 TCP · :8889 web</text>
+      <line x1="700" y1="80" x2="798" y2="80" stroke="currentColor" stroke-width="2" marker-end="url(#a1)"/>
+      <text x="712" y="70" font-size="13" fill="var(--mute)">goal positions</text>
+      <line x1="798" y1="126" x2="702" y2="126" stroke="currentColor" stroke-width="2" marker-end="url(#a1)"/>
+      <text x="712" y="146" font-size="13" fill="var(--mute)">state ~400 Hz</text>
+      <rect x="820" y="196" width="220" height="50" fill="none" stroke="currentColor"/>
+      <text x="838" y="227" font-size="16"><tspan font-family="JetBrains Mono" font-size="15">estop.py</tspan> <tspan fill="var(--mute)">sets a latch</tspan></text>
+      <line x1="930" y1="196" x2="930" y2="162" stroke="currentColor" stroke-width="2" marker-end="url(#a1)"/>
+      <!-- bridge -->
+      <rect x="800" y="296" width="260" height="84" fill="var(--plane)"/>
+      <text x="818" y="328" font-weight="700" font-size="20">realsense-bridge</text>
+      <text x="818" y="356" font-size="14" font-family="JetBrains Mono" fill="var(--mute)">ws :8890 · colour + depth</text>
+      <line x1="798" y1="330" x2="702" y2="330" stroke="currentColor" stroke-width="2" marker-end="url(#a1)"/>
+      <!-- hardware -->
+      <rect x="1140" y="30" width="240" height="78" fill="var(--plane2)"/>
+      <text x="1158" y="62" font-weight="700">ElRobot follower</text>
+      <text x="1158" y="88" fill="var(--mute)" font-size="15">8 × ST3215 servos, 12 V</text>
+      <line x1="1060" y1="70" x2="1138" y2="70" stroke="currentColor" stroke-width="2" marker-start="url(#a1)" marker-end="url(#a1)"/>
+      <rect x="1140" y="124" width="240" height="44" fill="var(--plane2)"/>
+      <text x="1158" y="152" font-size="16">gripper camera</text>
+      <line x1="1138" y1="146" x2="1062" y2="146" stroke="currentColor" stroke-width="2" marker-end="url(#a1)"/>
+      <rect x="1140" y="296" width="240" height="84" fill="var(--plane2)"/>
+      <text x="1158" y="328" font-weight="700">RealSense D435</text>
+      <text x="1158" y="354" fill="var(--mute)" font-size="15">across the table, ~43° down</text>
+      <line x1="1138" y1="338" x2="1062" y2="338" stroke="currentColor" stroke-width="2" marker-end="url(#a1)"/>
+      <!-- viewer -->
+      <rect x="320" y="420" width="380" height="100" fill="var(--plane)"/>
+      <text x="340" y="454" font-weight="700" font-size="20">station-viewer <tspan font-weight="400" fill="var(--mute)" font-size="16">· :5173</tspan></text>
+      <text x="340" y="484" fill="var(--mute)" font-size="15">live 3D arm + RealSense point cloud,</text>
+      <text x="340" y="503" fill="var(--mute)" font-size="15">same calibration as the tools</text>
+      <path d="M930 380V470H702" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a1)"/>
+      <text x="945" y="430" font-size="13" fill="var(--mute)">point cloud</text>
+      <path d="M800 150H770V318M770 342V490H702" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a1)"/>
+      <text x="712" y="510" font-size="13" fill="var(--mute)">joints</text>
+      <line x1="240" y1="470" x2="318" y2="470" stroke="currentColor" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#a1)"/>
+      <line x1="240" y1="440" x2="318" y2="352" stroke="currentColor" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#a1)"/>
+      <line x1="510" y1="360" x2="510" y2="418" stroke="currentColor" stroke-width="2" stroke-dasharray="3 5" marker-end="url(#a1)"/>
+      <text x="522" y="396" font-size="13" fill="var(--mute)">/events: live tool calls (panel next)</text>
+    </g>
+  </svg></div><figcaption>Claude only ever sees the MCP tools (the yellow edge). Dashed lines: the shared calibration file, and the <code>/events</code> feed for a viewer panel that isn't built yet.</figcaption></figure>
+    <div class="scroll">
+      <table class="stack">
+        <thead><tr><th>Process</th><th>Where</th><th>What it does</th><th>Who starts it</th></tr></thead>
+        <tbody>
+          <tr><td><b>Station</b></td><td><code>:8888</code> TCP, <code>:8889</code> web</td><td>Owns the servo buses and the USB cameras. Unchanged upstream binary, run as <code>station --tcp --web</code>.</td><td>Human or agent</td></tr>
+          <tr><td><b>RealSense bridge</b></td><td><code>ws://127.0.0.1:8890</code></td><td>Streams the D435's colour image and the depth image aligned to it. Keeps <code>calibration.json</code> (camera pose and joint zeros).</td><td>Human: it needs <code>sudo</code> on macOS</td></tr>
+          <tr><td><b>MCP server</b> <span class="pill">normacore-mcp</span></td><td><code>127.0.0.1:8790/mcp</code></td><td>The tools Claude calls. Talks to Station over TCP and to the bridge over WebSocket. Also serves <code>GET /events</code>, a live feed of the connected agent and each tool call (<code>activity.py</code>). The feed is display only, and the viewer panel that will show it isn't built yet. Restart the process after any code change.</td><td>Agent (allowed)</td></tr>
+          <tr><td><b>station-viewer</b></td><td><code>:5173</code> (dev)</td><td>The 3D arm plus the RealSense point cloud, using the same joint zeros and camera pose as the server, so what you see is what the tools compute. Unplugged cameras are hidden, a standby panel shows when no hardware is connected, and kiosk mode runs it full-screen.</td><td>Human or agent</td></tr>
+          <tr><td><b>estop.py</b></td><td>separate program</td><td>Emergency stop that sets a latch in Station. Every motion tool refuses while it is set.</td><td>Human</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 id="now-sees" style="margin-top:28px">What the camera sees</h3>
+<div class="shots">
+  <figure style="margin:0"><img src="img/find-latest.jpg" alt="Colour image with numbered boxes around detected objects"><figcaption><code>find_objects</code> at 12:45, from the saved frame. Figure 1 and the lego by the pen came from the run before. Box 3 looks like a false detection.</figcaption></figure>
+  <figure style="margin:0"><img src="img/find-latest-depth.png" alt="False-colour depth map of the same scene"><figcaption>The same frame's aligned depth (320 × 240, false colour). It is used only for heights.</figcaption></figure>
+  <figure style="margin:0"><img src="img/verify-latest-raw.jpg" alt="Jaws lowered over a yellow lego brick"><figcaption>The check before closing at 12:43: the jaws are down over the yellow lego.</figcaption></figure>
+</div>
+<h3 id="now-loop" style="margin-top:28px">The pick and place loop</h3>
+<figure style="margin:0 0 20px"><a href="scene3d.html"><img src="img/scene3d-nudge.png" alt="3D walkthrough: the arm doing nudge_jaws over a figure, with the which-call-when panel" style="width:100%;height:auto;display:block;border:1px solid var(--rule)"></a><figcaption><a href="scene3d.html" style="color:inherit"><b>Open the interactive 3D walkthrough</b></a>: a guided tour of "put the figures in the box" with the real calls, or <a href="scene3d.html?mode=try" style="color:inherit">try it yourself</a> (click a figure, then click where it goes, and drag figures out of reach or into a crowd).</figcaption></figure>
+    <div class="paths">
+      <div class="flow">
+        <div class="flowhead">Everyday workflow (8 tools)</div>
+        <div class="step"><b>1 · Look</b><span><code>find_objects</code> with the arm at home. You get numbered objects with position, height and <code>standing</code>, plus <code>reach.how</code>, which is the exact call to use. <code>crowded_by</code> means move the neighbour first.</span></div>
+        <div class="step"><b>2 · Pick</b><span>A standing object in easy reach: <code>pick(id)</code>. A flat, small or far object, or after a miss: <code>pick(id, close=False)</code>, read the zoomed photo, <code>nudge_jaws</code>, then <code>close_and_lift</code>.</span></div>
+        <div class="step"><b>3 · Place</b><span><code>place_near(id)</code> (beside a pen's long side, or at one end) or <code>place(x, z)</code>. Afterwards the arm rises straight up to 15 cm.</span></div>
+        <div class="step"><b>4 · Finish</b><span><code>home</code> (~30 s), then one <code>find_objects</code> to confirm.</span></div>
+      </div>
+      <div class="flow">
+        <div class="flowhead">Rules from the human</div>
+        <div class="step"><b>After a miss</b><span>Don't go home. <code>lift_and_look</code> raises the jaws 10 cm and returns a fresh object list, then try again from there.</span></div>
+        <div class="step"><b>Unclear photo</b><span><code>lift_and_look</code>. When the jaws are low the gripper hides the object, and guessing from such photos once pushed a figure 8 cm across the table.</span></div>
+        <div class="step"><b>From above</b><span>The tools always come at an object from above. <code>nudge_jaws</code> goes up over the object, across, then down. No joint moves near objects.</span></div>
+        <div class="step"><b>Rise after place</b><span>A low retreat let the next swing knock the placed lego over. <code>PLACE_CLEAR_Y</code> = 15 cm.</span></div>
+      </div>
+    </div>
+
+    <h3 id="now-pick" style="margin-top:28px">Inside one <code>pick</code> call</h3>
+<figure style="margin:14px 0 20px"><div class="plate dark"><svg viewBox="0 0 1400 390" role="img" aria-label="Six steps of a pick: approach above the object, look at the real jaws and shift sideways, descend straight down, check before closing, close until held, lift.">
+    <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="currentColor"/></marker>
+      <g id="jo"><rect x="-26" y="-76" width="52" height="30" fill="var(--plane2)" stroke="currentColor" stroke-width="2"/><rect x="-8" y="-118" width="16" height="42" fill="var(--plane2)" stroke="currentColor" stroke-width="2"/><path d="M-22 -46V0M22 -46V0" stroke="currentColor" stroke-width="5" stroke-linecap="round"/></g>
+      <g id="jc"><rect x="-26" y="-76" width="52" height="30" fill="var(--plane2)" stroke="currentColor" stroke-width="2"/><rect x="-8" y="-118" width="16" height="42" fill="var(--plane2)" stroke="currentColor" stroke-width="2"/><path d="M-22 -46L-17 -30V0M22 -46L17 -30V0" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/></g>
+      <g id="cam"><rect x="-22" y="-12" width="44" height="24" rx="3" fill="var(--plane2)" stroke="currentColor" stroke-width="2"/><circle r="7" fill="none" stroke="var(--yel)" stroke-width="2"/></g>
+    </defs>
+    <g font-size="17" fill="currentColor">
+      <!-- panels: cx = 120 + i*232 -->
+      <g transform="translate(120 0)">
+        <line x1="-105" y1="300" x2="105" y2="300" stroke="var(--hair)" stroke-width="2"/>
+        <rect x="-14" y="256" width="28" height="44" fill="var(--obj)"/>
+        <line x1="0" y1="120" x2="0" y2="250" stroke="var(--mute)" stroke-dasharray="3 5"/>
+        <use href="#jo" x="18" y="222"/>
+        <text x="-100" y="345" font-weight="700">1 · Approach</text>
+        <text x="-100" y="370" fill="var(--mute)" font-size="15">above the object's top</text>
+      </g>
+      <g transform="translate(352 0)">
+        <line x1="-105" y1="300" x2="105" y2="300" stroke="var(--hair)" stroke-width="2"/>
+        <rect x="-14" y="256" width="28" height="44" fill="var(--obj)"/>
+        <use href="#jo" x="18" y="222"/>
+        <use href="#cam" x="78" y="40"/>
+        <path d="M70 52L-4 222M76 52L40 222" stroke="var(--yel)" stroke-dasharray="4 4"/>
+        <line x1="18" y1="150" x2="2" y2="150" stroke="currentColor" stroke-width="2" marker-end="url(#a2)"/>
+        <text x="-96" y="146" font-size="15" font-family="JetBrains Mono">−1.6 cm</text>
+        <text x="-100" y="345" font-weight="700">2 · Look at the jaws</text>
+        <text x="-100" y="370" fill="var(--mute)" font-size="15">real tips, sideways fix</text>
+      </g>
+      <g transform="translate(584 0)">
+        <line x1="-105" y1="300" x2="105" y2="300" stroke="var(--hair)" stroke-width="2"/>
+        <rect x="-14" y="256" width="28" height="44" fill="var(--obj)"/>
+        <use href="#jo" x="0" y="222" opacity=".25"/>
+        <use href="#jo" x="0" y="298"/>
+        <line x1="60" y1="120" x2="60" y2="270" stroke="currentColor" stroke-width="2" marker-end="url(#a2)"/>
+        <text x="-100" y="345" font-weight="700">3 · Straight down</text>
+        <text x="-100" y="370" fill="var(--mute)" font-size="15">3 points on a line</text>
+      </g>
+      <g transform="translate(816 0)">
+        <line x1="-105" y1="300" x2="105" y2="300" stroke="var(--hair)" stroke-width="2"/>
+        <rect x="-14" y="256" width="28" height="44" fill="var(--obj)"/>
+        <use href="#jo" x="0" y="298"/>
+        <use href="#cam" x="78" y="40"/>
+        <path d="M70 52L-22 252M76 52L22 252" stroke="var(--yel)" stroke-dasharray="4 4"/>
+        <circle cx="-70" cy="120" r="20" fill="none" stroke="var(--yel)" stroke-width="3"/>
+        <path d="M-80 120l7 8l14-16" fill="none" stroke="var(--yel)" stroke-width="3"/>
+        <text x="-100" y="345" font-weight="700">4 · Check first</text>
+        <text x="-100" y="370" fill="var(--mute)" font-size="15">still off? don't close</text>
+      </g>
+      <g transform="translate(1048 0)">
+        <line x1="-105" y1="300" x2="105" y2="300" stroke="var(--hair)" stroke-width="2"/>
+        <rect x="-14" y="256" width="28" height="44" fill="var(--obj)"/>
+        <use href="#jc" x="0" y="298"/>
+        <text x="-96" y="146" font-size="15" font-family="JetBrains Mono">current ↑</text>
+        <text x="-96" y="168" font-size="15" font-family="JetBrains Mono">= held</text>
+        <text x="-100" y="345" font-weight="700">5 · Close</text>
+        <text x="-100" y="370" fill="var(--mute)" font-size="15">until the motor feels it</text>
+      </g>
+      <g transform="translate(1280 0)">
+        <line x1="-105" y1="300" x2="105" y2="300" stroke="var(--hair)" stroke-width="2"/>
+        <rect x="-14" y="196" width="28" height="44" fill="var(--obj)"/>
+        <use href="#jc" x="0" y="238"/>
+        <line x1="60" y1="250" x2="60" y2="130" stroke="currentColor" stroke-width="2" marker-end="url(#a2)"/>
+        <text x="-100" y="345" font-weight="700">6 · Lift</text>
+        <text x="-100" y="370" fill="var(--mute)" font-size="15">logged with its frames</text>
+      </g>
+    </g>
+  </svg></div><figcaption>Side view, not to scale. With <code>close=False</code> it stops after step 3 and returns a zoomed photo.</figcaption></figure>
+    <div class="flow">
+      <div class="step"><b>Reach correction</b><span>The aim point is shifted outward by <code>data/reach_map.json</code>, because the real jaws land short: −2.5 cm at 27 cm from the base and −3.0 cm at 32 cm.</span></div>
+      <div class="step"><b>Plan</b><span>Inverse kinematics runs in a thread, so the event loop and the Station connection stay alive. It retries from several seed poses and keeps the roll joints within 0.29–0.79 to protect the camera cable. The aim point is a fixed point on the wrist roll axis (<code>arm_model.TIP_LOCAL</code>).</span></div>
+      <div class="step"><b>Approach</b><span>Moves above the object's top with the jaws open (~5 cm). Long objects get a wrist roll so the jaws close across the short side.</span></div>
+      <div class="step"><b>Jaw look</b><span>The depth camera finds the real jaw tips (<code>depth.find_jaw_tips</code>) and corrects the sideways offset. The source is <code>camera</code> when measured live, otherwise <code>saved</code> (median of the last 10 measurements in <code>data/jaw_offset.json</code>, currently −1.6 cm).</span></div>
+      <div class="step"><b>Descend</b><span>Goes straight down through 3 points on a straight line. A single joint-space move drifted 6 mm sideways.</span></div>
+      <div class="step"><b>Verify</b><span>Checks that the jaws are over the object. If they're still off after one correction, it does <b>not</b> close and reports <code>failed_step: "verify"</code>.</span></div>
+      <div class="step"><b>Close and lift</b><span>Closes until the motor current says the object is held, then lifts. Every pick, place and close is appended to <code>data/runs.jsonl</code>, and the frames go to <code>data/frames/</code> (last 60).</span></div>
+    </div>
+
+    <h3 id="now-calib" style="margin-top:28px">Calibrations (redo when the camera or the arm base moves)</h3>
+    <div class="scroll">
+      <table class="stack">
+        <thead><tr><th>What</th><th>How</th><th>Stored in</th></tr></thead>
+        <tbody>
+          <tr><td><b>Joint ranges</b></td><td>Station web UI: Auto Calibrate → Save. A human does this, never the agent.</td><td>Station</td></tr>
+          <tr><td><b>Camera pose + joint zeros</b></td><td><code>arm_fit.py capture</code> at about 7 poses (including low and far ones), then <code>fit --save</code>, then <code>check</code> and look at the pictures</td><td><code>realsense-bridge/calibration.json</code> (the viewer uses it too)</td></tr>
+          <tr><td><b>Reach error</b></td><td><code>calibrate_reach(side)</code> with that side of the table clear, ~1.5 min</td><td><code>data/reach_map.json</code></td></tr>
+          <tr><td><b>Sideways jaw offset</b></td><td>Measured by <code>pick</code> every time it sees the jaw tips</td><td><code>data/jaw_offset.json</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cols" style="margin-top:20px;grid-template-columns:1fr 1fr">
+  <figure style="margin:0"><div class="plate dark"><svg viewBox="0 0 640 380" role="img" aria-label="Side view: the depth camera now sits about 70 cm out and 59 cm up, looking down at 43 degrees; before it was 87 cm out at 37 degrees. The arm reaches about 39 cm.">
+        <defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="currentColor"/></marker></defs>
+        <g font-size="16" fill="currentColor">
+          <line x1="20" y1="300" x2="620" y2="300" stroke="currentColor" stroke-width="2"/>
+          <rect x="140" y="248" width="96" height="52" fill="var(--yel)" opacity=".16"/>
+          <text x="142" y="240" font-size="13" fill="var(--mute)">objects</text>
+          <rect x="50" y="280" width="40" height="20" fill="var(--plane2)" stroke="currentColor"/>
+          <path d="M70 280L70 220L120 190" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
+          <text x="40" y="326" font-size="14">arm base</text>
+          <path d="M70 312H226" stroke="var(--mute)" marker-end="url(#a3)" marker-start="url(#a3)"/>
+          <text x="104" y="346" font-size="14" fill="var(--mute)">reach ~39 cm</text>
+          <!-- old camera: 87 cm out, 58 cm up, 37 deg (scale 400px/m, base x=70) -->
+          <g opacity=".45"><rect x="408" y="56" width="40" height="22" rx="3" fill="none" stroke="currentColor" stroke-dasharray="4 3" transform="rotate(-37 428 67)"/>
+            <line x1="428" y1="67" x2="120" y2="300" stroke="currentColor" stroke-dasharray="4 5"/>
+            <text x="456" y="62" font-size="14">before: 87 cm out, 37°</text></g>
+          <!-- new camera: 70 cm out, 59 cm up, 43 deg -->
+          <rect x="328" y="53" width="44" height="24" rx="3" fill="var(--plane2)" stroke="var(--yel)" stroke-width="2" transform="rotate(-43 350 65)"/>
+          <line x1="350" y1="65" x2="98" y2="300" stroke="var(--yel)" stroke-width="2"/>
+          <path d="M290 300A60 60 0 0 0 296 270" fill="none" stroke="var(--yel)" stroke-width="2"/>
+          <text x="300" y="284" font-size="18" font-weight="700" fill="var(--yel)">43°</text>
+          <text x="370" y="110" font-size="15">now: 70 cm out, 59 cm up</text>
+        </g>
+      </svg></div><figcaption>The camera mount before and after today's move (side view, 1 m = 400 px).</figcaption></figure>
+  <figure style="margin:0"><img src="img/armfit-check-p3_low.png" alt="Fitted arm model drawn over the real arm" style="width:100%;height:auto;display:block;border:1px solid var(--rule)"><figcaption><code>arm_fit.py check</code>, pose p3_low: the fitted model drawn over the real arm (yellow arm, cyan gripper, magenta jaws). The green circles are the model's jaw tips. The fit is within 7–10 mm in every pose.</figcaption></figure>
+</div>
+<h3 id="now-changed" style="margin-top:28px">What changed, and why</h3>
+    <div class="scroll">
+      <table class="stack">
+        <thead><tr><th>Before</th><th>Now</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Desk webcam, coloured markers, skill replay as the main plan</td><td>RealSense colour + depth, look-and-pick every time. Skills are optional, markers are legacy.</td><td>Replay fails as soon as an object is off its marked spot</td></tr>
+          <tr><td>Depth-only object detection</td><td>Detection in the colour image (<code>find_objects_rgb</code>) with positions on the table plane. Depth is only used for height, as the median of 5 frames.</td><td>Depth missed the lying minifigure. Table noise is 2.2 mm per frame.</td></tr>
+          <tr><td>Aim point from the gripper's bounding box</td><td>A fixed point on the wrist roll axis</td><td>The old point moved up to 14 mm with tilt, roll and opening</td></tr>
+          <tr><td>Motion clock followed the wall clock</td><td>The clock advances at most two periods per tick, planning runs in a thread, and <code>read_buses</code> reconnects once</td><td>On battery the ticks arrived late, the goal jumped ahead and the arm lunged into the object</td></tr>
+          <tr><td>A failed motor read parsed as position 0</td><td>The server and the viewer keep the last real reading</td><td>It caused the one-frame "glitch" in the 3D view and bad input to the motion checks</td></tr>
+          <tr><td>Sideways jaw move with a 1.5 cm hop</td><td>Up over the object's top, across, down</td><td>The hop pushed a figure and a box ~8 cm</td></tr>
+          <tr><td>Release at a fixed 0.45, low retreat</td><td>Opens at least 0.2 wider than the grip, then rises to 15 cm</td><td>A wide figure wasn't released, and the next swing knocked a placed lego over</td></tr>
+          <tr><td>Depth camera 25° above the table</td><td>Moved closer and steeper around 12:20 and refitted with <code>arm_fit.py</code> at 12:34. Pitch is now about 43° (−0.74 rad), with the camera ~59 cm up and ~70 cm out from the base. The fit before (00:01) had it 87 cm out at 37°.</td><td>At 25° the gripper hid the object, and positions along the view were off by ~2 cm per cm of height error. The target in the hand-off was ≥ 50°.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 id="now-status" style="margin-top:28px">Where it stands</h3>
+    <div class="cols">
+      <div>
+        <p><b>Today's log</b> (<code>data/runs.jsonl</code>, 22 Nov): <code>pick</code> succeeded 3 of 13 times, <code>close_and_lift</code> 3 of 7 and <code>place</code> 6 of 7. In the morning session 3 of 4 figures ended up beside the pen. With corrections the arm lands within about 1 cm. That is enough for a standing figure, but a figure lying flat needs the look-and-adjust steps.</p>
+        <p><b>Latest failures</b> (12:42–12:45): these were engine aborts during the approach or the carry, not misses: <em>"servo 6 (wrist_pitch) is 0.118 away from its target for 5 ticks"</em>, then the same for servos 7 and 1. The tracking limit (<code>TRACK_ERR_MAX</code> 0.10 over 5 ticks) and <code>MAX_VEL_NORM</code> 0.5 are still untuned defaults. Raising them needs the human's OK.</p>
+      </div>
+      <div>
+        <p><b>Watch on the first runs:</b> colour <code>find_objects</code> on standing objects, the check before closing, the over-the-top <code>nudge_jaws</code> and <code>lift_and_look</code>. All four were written after the arm was unplugged and tested offline only. The reach map (12:25) was measured after the camera moved, so it still applies.</p>
+        <p><b>Next:</b> use the gripper camera in the check before closing, have <code>pick</code> retry by itself, and tune the engine limits with the human.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="architecture" class="band">
   <div class="wrap">
     <figure style="margin:0">
       <div class="plate">
@@ -601,6 +889,150 @@ pre{overflow-x:auto;background:var(--plane);padding:16px 18px;margin:0;font:14px
         <p class="note">A small, worthwhile MCP change: a <code>CAMERAS</code> setting that maps each queue hash to a role, e.g. <code>gripper=usbvideo/3f2a…,desk=usbvideo/9c1e…</code>, so <code>look("desk")</code> works and the labels say what each image is. Askar's latest <code>server.py</code> already returns a clear message for a wrong camera index.</p>
       </div>
     </div>
+  </div>
+</section>
+
+<section id="self-calibration" class="band">
+  <div class="wrap">
+    <h2>Can the arm calibrate itself with the camera? Partly, and the useful part isn't the one the station calls calibration</h2>
+    <p>"Calibration" covers four different things. The station already handles the first one without a camera, by touch. The other three are exactly what the agent needs to act from images, and nobody does them today. An agent can do them over MCP if a small vision tool does the measuring and Claude does the judging.</p>
+    <div class="scroll" style="margin-top:14px">
+      <table class="stack">
+        <thead><tr><th>Kind</th><th>What it answers</th><th>Today</th><th>Camera + agent?</th></tr></thead>
+        <tbody>
+          <tr><td><b>Joint ranges</b></td><td>Where each servo's mechanical limits are (<code>range_min</code> / <code>range_max</code>)</td><td>Station Auto Calibrate drives each motor until it stalls against its limit (<code>st3215/src/auto_calibrate</code>, with an ElRobot sequence). Leader: by hand, because 5 V is below the 7 V cutoff.</td><td><b>Not needed.</b> Touch is more precise than vision here. The camera could watch for collisions during the sweep, but re-calibrating shifts every saved skill, so it stays a human decision (<code>CLAUDE.md</code> §6 rule 7).</td></tr>
+          <tr><td><b>Direction map</b></td><td>Which way “+0.05 on the elbow” actually moves the arm</td><td>An empty table in <code>CLAUDE.md</code> marked “fill this in on the real robot”</td><td><b>Yes, easy.</b> Nudge one joint, look, compare, write the row. Claude is reliable at “moved left / up / rotated”.</td></tr>
+          <tr><td><b>Camera ↔ arm map</b></td><td>Where the gripper appears in the desk camera for a given pose, and which pose reaches a given spot on the table</td><td>Nothing. The roadmap plans <code>above_&lt;cell&gt;</code> poses taught by hand (P2).</td><td><b>Yes, with a marker.</b> Move through a grid of poses, detect a coloured tag on the gripper with OpenCV, and fit pixel ↔ pose. This could replace most of the hand teaching.</td></tr>
+          <tr><td><b>Drift check</b></td><td>Did the camera, the table or the joint numbers move since last time?</td><td>Planned in <code>CLAUDE.md</code> §6 rule 5</td><td><b>Yes.</b> Go home, look, compare against a stored reference and a tape mark on the table.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 id="calib-loops" style="margin-top:28px">Three agent loops worth building</h3>
+    <div class="paths">
+      <div class="flow">
+        <div class="flowhead">calibrate_directions (≈15 min)</div>
+        <div class="step"><b>Prepare</b><span><code>hold</code>, arm in a clear pose, both cameras fresh (not STALE).</span></div>
+        <div class="step"><b>Per joint</b><span>Look, nudge +0.03, look, nudge −0.03 back. Compare the two frames: what moved, and which way.</span></div>
+        <div class="step"><b>Check</b><span>Goal vs present position: did the joint actually move? Is the current normal?</span></div>
+        <div class="step"><b>Record</b><span>Fill in the direction table in <code>CLAUDE.md</code>, including which gripper end is open, and commit.</span></div>
+      </div>
+      <div class="flow">
+        <div class="flowhead">calibrate_workspace (needs a vision tool)</div>
+        <div class="step"><b>Marker</b><span>Coloured tape or an ArUco tag on the gripper; the desk cam fixed in place; a 3 × 3 grid taped on the table.</span></div>
+        <div class="step"><b>Sweep</b><span>Visit about 20 safe poses at a fixed height. At each one, <code>find_marker</code> gives the tag's pixel position, saved with the raw joint positions.</span></div>
+        <div class="step"><b>Fit</b><span>Pixel ↔ pose per table cell (nearest poses, blended). Claude checks the result by moving “above B2” and looking.</span></div>
+        <div class="step"><b>Save</b><span><code>data/workspace.json</code> with a calibration snapshot, like a skill.</span></div>
+      </div>
+      <div class="flow">
+        <div class="flowhead">check_drift (every session)</div>
+        <div class="step"><b>Home</b><span><code>go_to_pose("home")</code>, then look with both cameras.</span></div>
+        <div class="step"><b>Compare</b><span>Marker pixel vs the stored one; landmark pixel vs the stored one.</span></div>
+        <div class="step"><b>Decide</b><span>Landmark moved, arm didn't: the camera was bumped. Arm moved, landmark didn't: joint drift. Tell the human, and redo the workspace map if needed.</span></div>
+      </div>
+    </div>
+
+    <div class="cols" style="margin-top:24px">
+      <div>
+        <h3>Why measure with code, not with Claude's eyes</h3>
+        <p>Claude judges images well: is the gripper above the cube, did the joint go left, is something in the way. It's poor at exact pixel positions, especially at 224 px. So the vision tool measures (marker centre, colour blob, pixel offsets), and Claude orchestrates, sanity-checks, and decides when something looks wrong. This matches the roadmap's <code>vision.py</code> / <code>find_objects</code>.</p>
+      </div>
+      <div>
+        <h3>Limits to respect</h3>
+        <p>The move tools refuse uncalibrated joints, so joint-range calibration has to happen first, in the web UI. Direct writes have no current protection (only mirroring does), so sweeps need the small steps and the abort rules of the planned <code>motion.py</code>. The desk camera has no lens model, so the map only holds for the table plane at one height, and only while the camera stays put. Closing the loop with the gripper cam at grasp time absorbs whatever error is left (<code>CLAUDE.md</code> §6 rule 1).</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="failures" class="band">
+  <div class="wrap">
+    <h2>Why picks still fail: the arm lands 1–2 cm from where the depth camera says, and nothing checks it before the jaws close</h2>
+    <p>The depth camera finds objects well enough. The failures come from the step after that: turning a camera position into a gripper position. Three separate errors of about 1 cm each stack up there, and <code>pick</code> runs open loop, so none of them gets corrected. The jaws open 5 cm and the small objects are 1.3–2 cm wide, so 2 cm of error is a miss.</p>
+    <p class="note">Measured 2026-11-22 offline, from the 7 saved frames in <code>normacore-mcp/data/arm_fit_samples</code> and the arm model, with the calibration in <code>realsense-bridge/calibration.json</code>. The robot was not moved. Items marked “not verified” are hypotheses with a test attached.</p>
+
+    <div class="bug" id="fail-status">
+      <h3><span class="tag">Update</span> Fixed in code on 2026-11-22, not yet tried on the arm</h3>
+      <p><b>New finding, and the main one:</b> the arm model puts the centre between the jaws on top of one real jaw tip. In the three saved frames where the jaws point down, the real midpoint is 22.6, 18.5 and 20.7 mm to the side. With 5 cm jaws that puts a small object under a jaw instead of between them, which matches the 6 closes on air. Run <code>arm_fit.py check data/arm_fit_samples &lt;folder&gt;</code> to see it in pictures.</p>
+      <div class="scroll">
+        <table class="stack">
+          <thead><tr><th>Change</th><th>Where</th><th>Checked how</th></tr></thead>
+          <tbody>
+            <tr><td data-l="Change"><b><code>pick</code> looks at the real jaws</b> with the depth camera while hovering, centres them over the object, then descends. Falls back to a saved offset (seeded at 2 cm) when the jaws can't be seen.</td><td data-l="Where"><code>depth.find_jaw_tips</code>, <code>server._align_jaws</code>, <code>data/jaw_offset.json</code></td><td data-l="Checked">Detection tested on your 3 real frames. The correction itself has only run on the simulated arm.</td></tr>
+            <tr><td data-l="Change"><b>Fixed aim point</b> on the gripper, on the wrist roll axis.</td><td data-l="Where"><code>arm_model.py</code></td><td data-l="Checked">Unit tests: same point in every pose, unmoved by opening or rolling.</td></tr>
+            <tr><td data-l="Change"><b>Inverse kinematics:</b> hard cable limits on forearm and wrist roll, retry from two standard poses when the solver stalls, wrist roll held exactly, straight-line descent.</td><td data-l="Where"><code>arm_model.solve_ik</code>, <code>server._ik</code>, <code>_move_tip</code></td><td data-l="Checked">Grid of 90 targets and 30 random starts offline; simulated pick comes down vertical.</td></tr>
+            <tr><td data-l="Change"><b>Jaws turn by themselves</b> to close across a long object's short side.</td><td data-l="Where"><code>server._auto_roll_deg</code></td><td data-l="Checked">Not tested beyond the model. Watch the first run.</td></tr>
+            <tr><td data-l="Change"><b>Run log:</b> every <code>pick</code> and <code>place</code> goes to <code>data/runs.jsonl</code>.</td><td data-l="Where"><code>server._log_action</code></td><td data-l="Checked">Offline test.</td></tr>
+            <tr><td data-l="Change"><b>Depth:</b> median of 5 frames for <code>find_objects</code> and <code>depth_point</code>.</td><td data-l="Where"><code>depth.merge_frames</code></td><td data-l="Checked">Unit tests. The detection thresholds are unchanged.</td></tr>
+            <tr><td data-l="Change"><b>Honest error name:</b> <code>error_cm</code> is now <code>model_error_cm</code>.</td><td data-l="Where"><code>server._move_tip</code></td><td data-l="Checked">Offline test.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:12px"><b>Still needs the robot:</b> the first 10 picks to confirm the jaw correction (read <code>steps.jaw_look</code> in each result), the forward/back error (one camera can't measure it on thin jaw tips; the gripper camera can), the bending at far reach, and a new calibration capture with the roll joints at different values. A refit that included the roll joints moved the wrist roll zero by 19° without a better fit, so I did not save it.</p>
+      <p><b>Dropped:</b> changing the bridge's depth pooling. A median there would invent points between an object and the table.</p>
+    </div>
+
+    <h3 id="fail-evidence" style="margin-top:28px">What the numbers say</h3>
+    <div class="scroll">
+      <table class="stack">
+        <thead><tr><th>Check</th><th>Result</th><th>What it means</th></tr></thead>
+        <tbody>
+          <tr><td data-l="Check"><b>Aim point in the gripper's own frame</b>, over 14 poses</td><td data-l="Result">Moves 85.6–91.9 mm along the jaws and from −0.5 to −14.3 mm across them</td><td data-l="Means">The point that <code>pick</code> aims is not a fixed point on the gripper. It shifts up to 14 mm with the pose. <b>Confirmed code defect.</b></td></tr>
+          <tr><td data-l="Check"><b>Table plane</b> seen through the fitted camera pose</td><td data-l="Result">Tilted 12–15 mm per metre toward the camera and 5 mm low at the base, the same in all 7 frames</td><td data-l="Means">The fit tilted the camera about 0.8° away from the table to match the arm's shape. The arm model and the table disagree, so the camera pose carries roughly 1 cm of error at the 0.75 m viewing distance.</td></tr>
+          <tr><td data-l="Check"><b>Depth points on the gripper</b> vs the model</td><td data-l="Result">Median 8–15 mm apart (whole arm: 6.5–11 mm). In 4 of the 7 poses the points sit 6–7 mm above the model.</td><td data-l="Means">The gripper is the worst-fitted part of the arm. The model's gripper has no camera mast, cable or AprilTag, and the real one does.</td></tr>
+          <tr><td data-l="Check"><b>Depth noise</b> on the bare table</td><td data-l="Result">2.2 mm standard deviation, on a 320 × 240 grid (about 2.5 mm per pixel)</td><td data-l="Means">A 1.3 cm minifigure is 5 pixels wide. Anything under 9 mm tall is dropped by <code>find_objects</code>, which is why the lying minifigure and the pen are missed.</td></tr>
+          <tr><td data-l="Check"><b>Gripper tag</b> (<code>data/gripper_marker.json</code>)</td><td data-l="Result">3 samples, 1.15 cm spread, and not visible at grasp poses</td><td data-l="Means">The marker correction cannot help where it is needed, and its own offset was measured through the same arm model it is meant to correct.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 id="fail-causes" style="margin-top:28px">Causes, most damaging first</h3>
+    <div class="scroll">
+      <table class="stack">
+        <thead><tr><th>Cause</th><th>Where</th><th>Size</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td data-l="Cause"><b>The reported accuracy is not real accuracy.</b> <code>_move_tip</code> compares the target with the tip computed from the joint encoders through the same model. It reports 1–2 mm while the real gripper is centimetres away.</td><td data-l="Where"><code>server.py:1667</code></td><td data-l="Size">Hides everything below</td><td data-l="Status">Confirmed by reading the code</td></tr>
+          <tr><td data-l="Cause"><b>No look before closing.</b> <code>pick</code> never uses the gripper camera or a second depth frame. Your log records 6 closes on air with the object visible just ahead of the jaws.</td><td data-l="Where"><code>server.py:1938</code></td><td data-l="Size">Turns any error into a miss</td><td data-l="Status">Confirmed</td></tr>
+          <tr><td data-l="Cause"><b>The aim point wanders.</b> The “tip” is the centre of the gripper's bounding box in world axes, so it changes when the gripper tilts, rolls or opens. The pointing direction is built from it too.</td><td data-l="Where"><code>arm_model.py:212</code> (<code>tip</code>, <code>grasp_point</code>)</td><td data-l="Size">Up to 14 mm</td><td data-l="Status">Confirmed by computation</td></tr>
+          <tr><td data-l="Cause"><b>The arm bends and the encoders can't see it.</b> Printed links and servo horns flex under load. Your log measured the tip 1.5–3 cm below the planned height when extended.</td><td data-l="Where">Hardware; not in the model</td><td data-l="Size">1.5–3 cm in height at far reach</td><td data-l="Status">Measured by you on 2026-11-21</td></tr>
+          <tr><td data-l="Cause"><b>The calibration fit is pulled by parts the model doesn't have.</b> The fit matches depth points to the nearest model surface, and the mast, cable and tag are counted as gripper. It also reports the wrist pitch zero as 8.1° off, which at the jaw length is 1.3 cm.</td><td data-l="Where"><code>arm_fit.py:76</code> (<code>select</code>)</td><td data-l="Size">About 1 cm</td><td data-l="Status">Not verified. Test: hold a phone level on the jaws at the pose the model calls level.</td></tr>
+          <tr><td data-l="Cause"><b>Coarse, single-frame depth.</b> The bridge halves the resolution and keeps the nearest value of each 2 × 2 block, which fattens object edges. Each tool call uses one frame.</td><td data-l="Where"><code>bridge.py:160</code>, <code>depth.py:53</code></td><td data-l="Size">2–5 mm, plus missed flat objects</td><td data-l="Status">Noise measured; edge effect not measured</td></tr>
+          <tr><td data-l="Cause"><b>Motion aborts.</b> Late control ticks on battery power and tracking stops on the heavy shoulder moves.</td><td data-l="Where"><code>motion.py</code>, <code>_move_duration</code></td><td data-l="Size">Stops the run, doesn't miss</td><td data-l="Status">From your log</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 id="fail-fixes" style="margin-top:28px">What to change, in this order</h3>
+    <div class="flow">
+      <div class="flowhead">Each step is independent. Test one at a time on 10 picks.</div>
+      <div class="step"><b>1. Log every pick</b><span>Append each <code>pick</code> and <code>place</code> result to <code>data/runs.jsonl</code> (object, target, step errors, outcome). There is no run log today, so there is no way to tell which fix helped. About 15 minutes.</span></div>
+      <div class="step"><b>2. Fix the aim point</b><span>Replace the bounding-box tip with one constant point in the gripper frame (about 90 mm along the jaws, centred) and use the jaw axis itself as the pointing direction. Removes up to 14 mm of pose-dependent error. About 30 minutes, covered by <code>tests/test_arm_model.py</code>.</span></div>
+      <div class="step"><b>3. Measure the error where you grasp</b><span>Hold a small bright object in the jaws, lower it to grasp height at 9–12 spots across the table, and find it with the depth camera each time. Store camera position minus model position per spot and have <code>pick</code> add the interpolated difference. This cancels camera pose, bending and joint-zero errors together, because the object and the correction come from the same camera. Largest single gain.</span></div>
+      <div class="step"><b>4. Look before closing</b><span>Stop 3 cm above the object, take one frame, and correct by what is seen. With the gripper camera: centre the object between the jaws (the procedure is already in <code>data/exploration.md</code>). With the depth camera: measure jaws and object in the same frame and move by the difference.</span></div>
+      <div class="step"><b>5. Sharper depth</b><span>Take the median of 5–10 frames (noise drops to about 1 mm), send full resolution for the table area, Moving the camera from 0.75 m to 0.5 m from the objects cuts noise by about half again.</span></div>
+      <div class="step"><b>6. Refit the calibration</b><span>Leave the gripper out of the shape fit (or add the mast to the model), add poses low and far over the table, and check the wrist pitch zero against a real level. Less urgent once step 3 is in, because step 3 absorbs what is left.</span></div>
+      <div class="step"><b>7. Keep the Mac on AC</b><span>Your log ties the late ticks and stale-state aborts to battery throttling.</span></div>
+    </div>
+    <h3 id="grab-ball" style="margin-top:28px">Grab ball in the 3D view</h3>
+    <div class="cols">
+      <div>
+        <p>The three-arrow handle is replaced by one ball that rides just above the gripper. Turn it on with the same toolbar button on the arm's card.</p>
+        <div class="flow">
+          <div class="step"><b>Drag</b><span>Moves the gripper over the table. The height stays the same.</span></div>
+          <div class="step"><b>Shift + drag</b><span>Moves it straight up and down. The position over the table stays the same.</span></div>
+          <div class="step"><b>Double-click</b><span>Opens the gripper if it is closed, closes it if it is open. After closing it eases the goal to just inside where the jaws stopped, so an object is held without the servo pushing at full force.</span></div>
+          <div class="step"><b>Release</b><span>Sends the pose to the arm (Web control only), as before. A click without movement sends nothing.</span></div>
+        </div>
+      </div>
+      <div>
+        <h3>Table and back</h3>
+        <p>While dragging, the preview arm is checked against the table top and a limit behind the base. The ball stops at the last allowed spot and turns red; it does not pass through. An arm that already starts inside a limit can move out of it, not further in.</p>
+        <p>The limits are in <code>src/devices/elrobot/config.ts</code> (<code>elrobotKeepOut</code>): table at height 0, back limit 12 cm behind the base centre, 8 mm clearance. <b>The 12 cm is my guess</b>: measure the real distance and change <code>backX</code>. The back limit is drawn as a faint red sheet.</p>
+        <p class="note">Checked by type-check, lint and unit tests of the drag and limit maths (<code>grab-ball.test.ts</code>). Not tried in the browser: no arm was connected, so the 3D view had nothing to show.</p>
+      </div>
+    </div>
+
+    <p class="note" style="margin-top:14px">Steps 1–4 together should take the lying minifigure from 0 of 6 to mostly working. That is an estimate, not a measurement: step 1 is what will show whether it holds.</p>
   </div>
 </section>
 

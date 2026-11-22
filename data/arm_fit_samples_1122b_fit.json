@@ -1,0 +1,45 @@
+{
+  "samples": [
+    "p0_home",
+    "p1",
+    "p2",
+    "p3_low",
+    "p4",
+    "p5",
+    "p6"
+  ],
+  "before_arm_error_mm": [
+    37.4,
+    46.3,
+    33.3,
+    34.9,
+    42.4,
+    35.2,
+    36.8
+  ],
+  "after_arm_error_mm": [
+    9.3,
+    7.5,
+    10.1,
+    8.3,
+    6.6,
+    6.9,
+    7.0
+  ],
+  "fit_s": 66.4,
+  "camera_pose": {
+    "x": 0.6867,
+    "y": 0.594,
+    "z": 0.0094,
+    "yaw": 1.533,
+    "pitch": -0.7623,
+    "roll": 0.0657
+  },
+  "camera_moved_cm": 24.9,
+  "joint_zero_offsets_deg": {
+    "rev_motor_02": 2.61,
+    "rev_motor_04": -1.48,
+    "rev_motor_06": 13.1
+  },
+  "saved": "/Users/biquillo/Development/robotic-hackathon/realsense-bridge/calibration.json"
+}
