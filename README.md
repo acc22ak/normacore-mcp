@@ -90,7 +90,7 @@ flowchart LR
 | A low swing knocked a Lego over | Rise to 15 cm after placing |
 | The jaws landed 2.5–3 cm short | Aim further out (`calibrate_reach`) |
 
-<p align="center"><img src="docs/media/scene3d.jpg" width="720" alt="3D explainer of the pick loop"></p>
+<p align="center"><img src="docs/media/scene3d.jpg" width="720" alt="The pick loop in 3D, drawn as the depth camera sees it: pick(object_id=1)"></p>
 
 ## How far we got
 
