@@ -49,6 +49,11 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+try:   # optional 3D point-cloud view at /cloud (depthcam_cloud.py beside this file)
+    from depthcam_cloud import handle_cloud, set_cloud_source
+except ImportError:
+    handle_cloud = set_cloud_source = None
+
 logging.basicConfig(level=logging.INFO, stream=sys.stderr,  # stdout is the MCP channel in mcp mode
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("depthcam")
@@ -169,8 +174,10 @@ def capture_loop(store: FrameStore, stop: threading.Event) -> None:
                 c, d = frames.get_color_frame(), frames.get_depth_frame()
                 if not c or not d:
                     continue
-                store.put(np.asanyarray(c.get_data()).copy(), np.asanyarray(d.get_data()).copy(),
-                          np.asanyarray(colorizer.colorize(d).get_data()).copy())
+                color_np, depth_np = np.asanyarray(c.get_data()).copy(), np.asanyarray(d.get_data()).copy()
+                store.put(color_np, depth_np, np.asanyarray(colorizer.colorize(d).get_data()).copy())
+                if set_cloud_source:   # same arrays, no extra copy; colour is rgb8, depth aligned to it
+                    set_cloud_source(depth_np, store.info["depth_scale_m"], ci.fx, ci.fy, ci.ppx, ci.ppy, color_np)
         except Exception as e:  # camera unplugged, busy, USB hiccup: report and retry
             store.error = f"{type(e).__name__}: {e}"
             log.warning("camera error, retrying in 2 s: %s", store.error)
@@ -193,7 +200,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Depth camera</
 </style></head><body>
 <div class="row">
  <figure><figcaption>Colour</figcaption><div class="wrap"><img id="c" src="/stream/color"><div class="mark" id="mc"></div></div></figure>
- <figure><figcaption>Depth (aligned to colour)</figcaption><div class="wrap"><img id="d" src="/stream/depth"><div class="mark" id="md"></div></div></figure>
+ <figure><figcaption>Depth (aligned to colour) &middot; <a href="/cloud" style="color:#8cf">3D view</a></figcaption><div class="wrap"><img id="d" src="/stream/depth"><div class="mark" id="md"></div></div></figure>
 </div>
 <div id="out">Click a pixel to measure its distance.</div>
 <div id="st" style="color:#888;margin-top:6px"></div>
@@ -230,6 +237,8 @@ def make_handler(store: FrameStore):
             self._send(code, json.dumps(obj).encode(), "application/json")
 
         def do_GET(self):
+            if handle_cloud and handle_cloud(self):   # /cloud and /cloud.bin
+                return
             u = urllib.parse.urlparse(self.path)
             q = urllib.parse.parse_qs(u.query)
             if u.path == "/":

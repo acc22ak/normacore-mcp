@@ -182,6 +182,8 @@ class SafetyMonitor:
 
         `motors`: server.read_buses()[bus]["motors"]; `commanded`: last goals sent (norm).
         Gripper over-current is a GRASP, not a crash: it sets gripper_blocked instead of aborting.
+        So is a gripper that stays behind its target (stalled on a light object at low current):
+        the gripper never aborts on tracking error.
         """
         if state_age_s > self.cfg.stale_s:
             return f"robot state is {state_age_s:.2f} s old (limit {self.cfg.stale_s} s); not moving blind"
@@ -200,6 +202,11 @@ class SafetyMonitor:
                 self.max_track_err[j] = max(self.max_track_err.get(j, 0.0), err)
                 if j == self.cfg.gripper_id and self.gripper_blocked:
                     continue  # a blocked gripper is expected to lag its target
+                if err > self.cfg.track_err_max and j == self.cfg.gripper_id:
+                    self.over_count[j] = self.over_count.get(j, 0) + 1
+                    if self.over_count[j] >= self.cfg.track_err_ticks:
+                        self.gripper_blocked = True   # stalled on something between the fingers: a grasp
+                    continue
                 if err > self.cfg.track_err_max:
                     self.over_count[j] = self.over_count.get(j, 0) + 1
                     if self.over_count[j] >= self.cfg.track_err_ticks:

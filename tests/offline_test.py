@@ -356,8 +356,9 @@ async def main():
 
     tools = sorted(t.name for t in await S.mcp.list_tools())
     print("tools:", tools)
-    check("teach mode + recording tools removed (17 tools)",
-          not ({"teach_mode", "skill_from_history"} & set(tools)) and len(tools) == 17, len(tools))
+    check("teach mode + recording tools removed (20 tools)",
+          not ({"teach_mode", "skill_from_history"} & set(tools)) and len(tools) == 20, len(tools))
+    check("pick-and-place tools registered", {"pick_and_place", "find_objects", "calibrate_drop_spot"} <= set(tools))
     check("motion tools registered", {"go_to", "play_motion", "stop_motion"} <= set(tools))
     print(f"\n{'ALL PASSED' if not FAILS else f'{len(FAILS)} FAILED: {FAILS}'}")
     sys.exit(1 if FAILS else 0)
@@ -625,7 +626,9 @@ async def motion_engine_tests():
     r = await S.play_motion([{"joints": {"elbow": 0.6}, "duration_s": 0.3},
                              {"joints": {"gripper": 0.1}, "duration_s": 0.5}])
     check("grasp detected, motion still completes", r["completed"] and r["grasp_detected"], str(r))
-    check("gripper stops squeezing at the object", MODEL["FOLLOW"][8]["goal"] >= 1990, MODEL["FOLLOW"][8])
+    # holds a little past contact (GRASP_SQUEEZE_NORM, 0.04 of a 2000-step range = 80 steps), not fully closed
+    check("gripper keeps a light grip at the object, not squeezing to the target",
+          2000 - 80 - 5 <= MODEL["FOLLOW"][8]["goal"] < 2000, MODEL["FOLLOW"][8])
 
     reset_follower(); SIM["spike"] = {"motor": 2, "after": 10, "value": 500}
     r = await S.play_motion([{"joints": {"shoulder": 0.9}, "duration_s": 1.0}])

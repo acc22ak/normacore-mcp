@@ -79,6 +79,9 @@ check("per-motor current limit used", "limit 60" in (M.SafetyMonitor(cfg).check(
 mon = M.SafetyMonitor(cfg)
 check("gripper over-current = grasp, not abort", mon.check(motors(j8_current=300), cmd, 0) is None and mon.gripper_blocked)
 mon = M.SafetyMonitor(cfg)
+r = [mon.check(motors(j8_position_norm=0.75), cmd, 0) for _ in range(5)]
+check("stalled gripper = grasp, never a tracking abort", all(x is None for x in r) and mon.gripper_blocked, r)
+mon = M.SafetyMonitor(cfg)
 r = [mon.check(motors(j1_position_norm=0.75), cmd, 0) for _ in range(3)]
 check("tracking error aborts only after N ticks", r[0] is None and r[1] is None and "away from its target" in (r[2] or ""), r)
 mon = M.SafetyMonitor(cfg)

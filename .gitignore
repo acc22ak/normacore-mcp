@@ -5,3 +5,4 @@ __pycache__/
 .env
 station_data/
 .DS_Store
+depthcam.log

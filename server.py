@@ -198,11 +198,47 @@ def from_norm(norm: float, rmin: int, rmax: int) -> int:
     return (rmin + int(round(norm * range_size(rmin, rmax)))) & (MAX_STEPS - 1)
 
 
+READ_FILTER_N = int(os.environ.get("READ_FILTER_N", "3"))
+
+
 async def read_buses() -> dict[str, dict]:
-    entries = await read_last("st3215/inference", 1)
+    """Latest bus state, with each motor's position median-filtered over the last READ_FILTER_N
+    snapshots. On hardware a single snapshot sometimes carries a bogus position (e.g. 0, read
+    as norm 0.0), which made nudge_joints/move_joints command large unintended moves and
+    produced false tracking-error spikes in the motion engine."""
+    entries = await read_last("st3215/inference", READ_FILTER_N)
     if not entries:
         raise RuntimeError("no data in st3215/inference: is an arm plugged in and powered?")
-    return parse_inference_state(entries[-1])
+    snaps = []
+    for e in entries:
+        try:
+            snaps.append(parse_inference_state(e))
+        except Exception:  # a corrupt entry is just skipped
+            continue
+    if not snaps:
+        raise RuntimeError("st3215/inference entries could not be parsed")
+    return filter_positions(snaps)
+
+
+def filter_positions(snaps: list[dict[str, dict]]) -> dict[str, dict]:
+    """Newest snapshot (snaps are oldest first), with each motor's position replaced by the
+    median of its valid readings across `snaps`."""
+    latest = snaps[-1]
+    for serial, bus in latest.items():
+        for mid, m in bus["motors"].items():
+            vals = [s[serial]["motors"][mid]["position_raw"] for s in snaps
+                    if serial in s and mid in s[serial]["motors"] and s[serial]["motors"][mid].get("_valid", True)]
+            if vals:
+                vals.sort()
+                pos = vals[len(vals) // 2] if len(vals) % 2 else vals[len(vals) // 2 - 1]
+                m["position_raw"] = pos
+                if m["calibrated"]:
+                    m["position_norm"] = round(to_norm(pos, m["range_min"], m["range_max"]), 3)
+            m.pop("_valid", None)
+        for s in snaps[:-1]:
+            for mm in s.get(serial, {}).get("motors", {}).values():
+                mm.pop("_valid", None)
+    return latest
 
 
 def parse_inference_state(raw) -> dict[str, dict]:
@@ -219,6 +255,8 @@ def parse_inference_state(raw) -> dict[str, dict]:
             pos = _pos(_u16(s, RAM_PRESENT_POSITION))
             calibrated = range_size(rmin, rmax) >= MIN_CALIBRATED_RANGE
             motors[int(m.get_id())] = {
+                # a truncated register dump would read position 0: never trust it
+                "_valid": len(s) >= RAM_PRESENT_POSITION + 2,
                 "joint": ELROBOT_JOINTS.get(int(m.get_id()), f"motor_{m.get_id()}"),
                 "position_raw": pos,
                 "position_norm": round(to_norm(pos, rmin, rmax), 3) if calibrated else None,
@@ -666,8 +704,12 @@ async def move_joints(targets: dict[str, float], bus: str | None = None) -> dict
     """
     buses = await read_buses()
     serial = pick_bus(buses, bus)
+    return await _move_from_snapshot(serial, buses[serial]["motors"], targets)
+
+
+async def _move_from_snapshot(serial: str, motors: dict, targets: dict[str, float]) -> dict:
+    """Clamp and send `targets` using the same state snapshot the caller computed them from."""
     await guard_motion(serial)
-    motors = buses[serial]["motors"]
     names = {v["joint"]: k for k, v in motors.items()}
 
     goals: list[tuple[int, bytes]] = []
@@ -717,7 +759,8 @@ async def nudge_joints(deltas: dict[str, float], bus: str | None = None) -> dict
         mid = int(key) if str(key).isdigit() else names.get(key)
         if mid in motors and motors[mid]["position_norm"] is not None:
             targets[str(mid)] = motors[mid]["position_norm"] + float(d)
-    return await move_joints(targets, serial)
+    # same snapshot as the deltas: a second read could disagree and turn a small nudge into a big move
+    return await _move_from_snapshot(serial, motors, targets)
 
 
 @mcp.tool()
@@ -765,6 +808,9 @@ async def hold(bus: str | None = None) -> str:
 MOTION_RATE_HZ = float(os.environ.get("MOTION_RATE_HZ", "20"))
 MAX_VEL_NORM = float(os.environ.get("MAX_VEL_NORM", "0.5"))        # norm/s per joint; untuned, start low
 APPROACH_VEL_NORM = float(os.environ.get("APPROACH_VEL_NORM", "0.3"))
+# After a grasp is detected the gripper holds this far past the contact point (norm), so it keeps a
+# light grip instead of just touching. 0 = old behaviour (hold exactly at contact, like mirroring).
+GRASP_SQUEEZE_NORM = float(os.environ.get("GRASP_SQUEEZE_NORM", "0.04"))
 MOTION_ACCEL = int(os.environ.get("MOTION_ACCEL", "50"))           # servo accel register; Station teleop uses 5..100
 SETTLE_S = float(os.environ.get("SETTLE_S", "1.0"))
 SETTLE_TOL = float(os.environ.get("SETTLE_TOL", "0.02"))
@@ -864,9 +910,12 @@ async def _run_motion(waypoints: list[dict], speed_scale: float, bus: str | None
                 t = time.monotonic() - t0
                 target = tl.sample(t)
                 if monitor.gripper_blocked and GRIPPER_ID in target:
-                    if gripper_hold is None:
-                        gripper_hold = latest[GRIPPER_ID]["position_norm"]
-                    target[GRIPPER_ID] = gripper_hold  # grasped: stop squeezing, like Station's mirroring does
+                    if gripper_hold is None:   # grasped: hold a little past contact, for gentle steady pressure
+                        here = latest[GRIPPER_ID]["position_norm"]
+                        want = target[GRIPPER_ID]
+                        step = min(GRASP_SQUEEZE_NORM, abs(want - here))
+                        gripper_hold = here + (step if want > here else -step)
+                    target[GRIPPER_ID] = gripper_hold
                 await send_commands(c, [_sync_write(serial, RAM_GOAL_POSITION, [
                     (j, from_norm(target[j], *ranges[j]).to_bytes(2, "little")) for j in ids])])
                 state = (await read_buses())[serial]
@@ -1349,6 +1398,326 @@ async def report_skill_result(run_id: str, success: bool, note: str = "") -> dic
     return {"skill": skill["name"], "success": success, "status": skill["status"],
             "practice": skill["practice"], "stats": skill["stats"],
             "rebased_to_new_calibration": bool(success and rebased)}
+
+
+# ----------------------------------------------------------------------------
+# camera-guided pick and place (vision.py = detection, pickplace.py = decisions)
+
+import vision as VIS  # noqa: E402
+import pickplace as PP  # noqa: E402
+
+PICKPLACE_FILE = Path(os.environ.get("PICKPLACE_FILE", str(Path(__file__).resolve().parent / "data" / "pickplace.json")))
+PICKPLACE_LOG = Path(os.environ.get("PICKPLACE_LOG", str(Path(__file__).resolve().parent / "data" / "pickplace_runs.jsonl")))
+
+
+class PickPlaceStop(RuntimeError):
+    """A camera-guided step can't continue safely; the arm has been told to hold."""
+
+
+def _pp_config() -> dict:
+    cfg = json.loads(json.dumps(PP.DEFAULTS))
+    try:
+        cfg.update(json.loads(PICKPLACE_FILE.read_text(encoding="utf-8")))
+    except FileNotFoundError:
+        pass
+    return cfg
+
+
+async def _grab(role: str, newer_than: float | None = None, timeout: float = 2.0) -> tuple[bytes, object]:
+    """(jpeg, PIL image) from the camera with `role`, captured after wall-clock time `newer_than`.
+    Raises PickPlaceStop if the camera is missing or only has stale frames: never plan from those."""
+    deadline = time.monotonic() + timeout
+    while True:
+        cams, gone = await cameras()
+        roles, problems = camera_roles(cams, gone)
+        cam = roles.get(role)
+        if cam is None:
+            raise PickPlaceStop(f"no '{role}' camera: {problems or 'role not set (set_camera_role)'}")
+        if cam["jpeg"] is not None:
+            status, stale = frame_status(cam)
+            if stale:
+                raise PickPlaceStop(f"'{role}' camera frame is stale ({status})")
+            captured = time.time() - (cam["age_s"] or 0.0)
+            if newer_than is None or cam["age_s"] is None or captured >= newer_than:
+                return cam["jpeg"], VIS.decode(cam["jpeg"])
+        if time.monotonic() > deadline:
+            raise PickPlaceStop(f"no fresh '{role}' frame within {timeout} s")
+        await asyncio.sleep(0.1)
+
+
+async def _joints() -> dict:
+    buses = await read_buses()
+    motors = buses[pick_bus(buses, None)]["motors"]
+    return {m["joint"]: m["position_norm"] for m in motors.values()}
+
+
+async def _pp_move(targets: dict, duration_s: float, trace: list, why: str, allow_gripper_stall: bool = False) -> tuple[dict, float]:
+    """One checked move through the motion engine; returns (result, wall time it ended).
+    Any abort other than an expected gripper stall stops the whole sequence (the engine already holds).
+
+    Clearance rule: the arm never swings sideways (a base_yaw change beyond small alignment
+    corrections) while low; it first lifts straight up to the transit height, which clears the box
+    walls and other objects, so neither a carried object nor the empty gripper sweeps into things."""
+    if "base_yaw" in targets:
+        cfg = _pp_config()
+        j = await _joints()
+        if abs(targets["base_yaw"] - j["base_yaw"]) > cfg["small_yaw"] and not PP.is_high(j, cfg):
+            up = {k: v for k, v in cfg["transit"].items() if k in ("shoulder", "elbow")}
+            await _pp_move(up, 2.5, trace, f"lift to transit height before: {why}")
+            await _pp_move({"base_yaw": targets["base_yaw"]}, 0.0, trace, f"swing at transit height: {why}")
+            targets = {k: v for k, v in targets.items() if k != "base_yaw"}
+            if not targets:
+                return {"completed": True, "final": await _joints()}, time.time()
+    r = await _run_motion([{"joints": targets, "duration_s": duration_s}], 1.0, None)
+    trace.append({"move": why, "targets": {k: round(v, 3) for k, v in targets.items()},
+                  "completed": r["completed"], "abort": r["abort_reason"], "grasp": r["grasp_detected"],
+                  "final": r["final"]})
+    if not r["completed"]:
+        gripper_only = r["abort_reason"] and "gripper" in r["abort_reason"]
+        if not (allow_gripper_stall and gripper_only):
+            raise PickPlaceStop(f"{why}: motion aborted ({r['abort_reason']})")
+    return r, time.time()
+
+
+def _blobs_norm(img, cfg: dict, mask_jaws: bool = True) -> list[dict]:
+    w, h = img.size
+    return [PP.norm_blob(b, w, h) for b in VIS.dark_blobs(img, mask_jaws=mask_jaws)]
+
+
+def _markers_norm(img, cfg: dict) -> list[dict]:
+    w, h = img.size
+    found = (VIS.white_blobs(img) if cfg.get("marker") == "white"
+             else VIS.marker_blobs(img, hue=tuple(cfg["marker_hue"])))
+    return [PP.norm_blob(b, w, h) for b in found]
+
+
+def _annotated(img, blob: dict | None, label: str, target: tuple[float, float] | None, tlabel: str) -> Image:
+    w, h = img.size
+    boxes = []
+    if blob:
+        b = VIS.Blob(cx=blob["cx"] * w, cy=blob["cy"] * h, left=int(blob["left"] * w), top=int(blob["top"] * h),
+                     right=int(blob["right"] * w), bottom=int(blob["bottom"] * h), area=0, fill=0)
+        boxes.append((b, label))
+    pts = [(target[0] * w, target[1] * h, tlabel)] if target else []
+    return Image(data=VIS.annotate(img, boxes, pts), format="jpeg")
+
+
+@mcp.tool()
+async def find_objects(camera: str = "gripper") -> list:
+    """What the pick-and-place vision sees in one camera: dark blobs (the motor) and colour
+    markers (the box marker), with an annotated image. Use it to check detection before a run."""
+    cfg = _pp_config()
+    jpeg, img = await _grab(camera)
+    dark = _blobs_norm(img, cfg, mask_jaws=(camera == "gripper"))
+    marks = _markers_norm(img, cfg)
+    w, h = img.size
+    boxes = [(VIS.Blob(cx=b["cx"] * w, cy=b["cy"] * h, left=int(b["left"] * w), top=int(b["top"] * h),
+                       right=int(b["right"] * w), bottom=int(b["bottom"] * h), area=0, fill=0), f"dark{i}")
+             for i, b in enumerate(dark[:4])]
+    boxes += [(VIS.Blob(cx=b["cx"] * w, cy=b["cy"] * h, left=int(b["left"] * w), top=int(b["top"] * h),
+                        right=int(b["right"] * w), bottom=int(b["bottom"] * h), area=0, fill=0), f"marker{i}")
+              for i, b in enumerate(marks[:3])]
+    pts = [(cfg["jaw_center_x"] * w, 0.5 * h, "jaws"),
+           (cfg["place_target_x"] * w, cfg["place_target_y"] * h, "drop")] if camera == "gripper" else []
+    r = lambda d: {k: round(v, 3) for k, v in d.items()}  # noqa: E731
+    return [json.dumps({"camera": camera, "size": [w, h], "dark": [r(b) for b in dark[:4]],
+                        "markers": [r(b) for b in marks[:3]]}),
+            Image(data=VIS.annotate(img, boxes, pts), format="jpeg")]
+
+
+async def _pp_pick(cfg: dict, trace: list, images: list) -> dict:
+    """Align on the motor with the gripper camera and grasp it. Starts from the hover pose."""
+    yaw_gain = PP.AdaptiveGain(gain=1000 / 299, lo=1.0, hi=10.0)  # normalised x per norm of yaw
+    attempts = 0
+    _, t_end = await _pp_move({"gripper": cfg["gripper_open"]}, 1.0, trace, "open gripper")
+    while True:
+        prev = None
+        for step in range(cfg["pick_max_steps"]):
+            jpeg, img = await _grab("gripper", newer_than=t_end)
+            blob = PP.pick_target(_blobs_norm(img, cfg), cfg)
+            j = await _joints()
+            if blob is None and step == 0 and attempts == 0:
+                base = j["base_yaw"]  # not in view from the hover pose: sweep the base to find it
+                for off in cfg["scan_yaws"][1:]:
+                    yaw = PP.clamp(base + off, *cfg["yaw_bounds"])
+                    _, t_end = await _pp_move({"base_yaw": yaw}, 0.0, trace, f"search motor, yaw {yaw:.2f}")
+                    jpeg, img = await _grab("gripper", newer_than=t_end)
+                    blob = PP.pick_target(_blobs_norm(img, cfg), cfg)
+                    if blob is not None:
+                        j = await _joints()
+                        break
+            if blob is None:
+                raise PickPlaceStop("motor not visible in the gripper camera")
+            if prev is not None:
+                yaw_gain.observe(prev[1], blob["cx"] - prev[0])
+            dec = PP.pick_step(blob, j, yaw_gain, cfg)
+            trace.append({"pick_step": step, "blob": {k: round(v, 3) for k, v in blob.items()},
+                          "phase": dec["phase"], "dyaw": dec.get("dyaw"), "yaw_gain": round(yaw_gain.gain, 2)})
+            if dec["done"]:
+                images.append(_annotated(img, blob, "motor", (cfg["jaw_center_x"], 0.5), "jaws"))
+                break
+            if dec.get("limited"):
+                raise PickPlaceStop("motor out of reach (shoulder/elbow limit hit while approaching)")
+            prev = (blob["cx"], dec["targets"]["base_yaw"] - j["base_yaw"])
+            _, t_end = await _pp_move(dec["targets"], 0.0, trace, f"pick {dec['phase']}")
+        else:
+            raise PickPlaceStop(f"couldn't align on the motor in {cfg['pick_max_steps']} steps")
+        j = await _joints()
+        await _pp_move({"shoulder": min(cfg["shoulder_max"], j["shoulder"] + cfg["grasp_extra_down"])}, 1.0, trace,
+                       "a little deeper before closing")
+        r, t_end = await _pp_move({"gripper": cfg["gripper_close"]}, 2.5, trace, "close gripper",
+                                  allow_gripper_stall=True)
+        g = r["final"]["gripper"]
+        verdict = PP.grasp_verdict(g, cfg)
+        trace.append({"grasp": verdict, "gripper": g})
+        if verdict == "ok":
+            return {"gripper": g, "attempts": attempts + 1}
+        attempts += 1
+        if attempts >= 2:
+            raise PickPlaceStop(f"grasp failed twice (last: {verdict}, gripper {g})")
+        # on_top: the jaws closed on the motor's top edge -> open and go deeper; missed -> back off and realign
+        j = await _joints()
+        ds = cfg["grasp_extra_down"] if verdict == "on_top" else -0.06
+        _, t_end = await _pp_move({"gripper": cfg["gripper_open"]}, 1.2, trace, f"open after '{verdict}'",
+                                  allow_gripper_stall=True)
+        _, t_end = await _pp_move({"shoulder": PP.clamp(j["shoulder"] + ds, 0.05, cfg["shoulder_max"])}, 1.2, trace,
+                                  "deeper" if ds > 0 else "back off")
+
+
+async def _pp_place(cfg: dict, trace: list, images: list) -> dict:
+    """Carry height -> find the box marker (yaw scan) -> align it to the drop spot -> lower -> release."""
+    yaw_gain = PP.AdaptiveGain(gain=1000 / 299, lo=1.0, hi=10.0)
+    reach_gain = PP.AdaptiveGain(gain=2.0, lo=0.5, hi=8.0)  # normalised y per unit reach (prior; adapts)
+    j = await _joints()
+    _, t_end = await _pp_move(dict(cfg["carry"]), 3.5, trace, "lift to carry height")
+    jpeg, img = await _grab("gripper", newer_than=t_end)
+    if not PP.is_held(_blobs_norm(img, cfg, mask_jaws=False), cfg):
+        images.append(_annotated(img, None, "", None, ""))
+        raise PickPlaceStop("motor not in the jaws after lifting (dropped?)")
+    _, t_end = await _pp_move(dict(cfg["transit"]), 2.0, trace, "lift to transit height")
+    base = j["base_yaw"]
+    marker = None
+    for off in cfg["scan_yaws"]:
+        yaw = PP.clamp(base + off, *cfg["yaw_bounds"])
+        if off:
+            _, t_end = await _pp_move({"base_yaw": yaw}, 0.0, trace, f"scan yaw {yaw:.2f}")
+        jpeg, img = await _grab("gripper", newer_than=t_end)
+        marker = PP.pick_marker(_markers_norm(img, cfg), cfg)
+        trace.append({"scan_yaw": round(yaw, 3), "marker": marker and {k: round(v, 3) for k, v in marker.items()}})
+        if marker:
+            break
+    if marker is None:
+        raise PickPlaceStop("box marker not found in the yaw scan")
+    # Align from the view pose: with the elbow folded the camera looks down past the held motor
+    # (at carry height the motor hides the marker exactly when it's lined up).
+    _, t_end = await _pp_move(dict(cfg["place_view"]), 2.0, trace, "view pose over the box")
+    marker = None
+    prev = None
+    for step in range(cfg["place_max_steps"]):
+        jpeg, img = await _grab("gripper", newer_than=t_end)
+        marker = PP.pick_marker(_markers_norm(img, cfg), cfg, near=marker)
+        if marker is None:
+            images.append(_annotated(img, None, "", (cfg["place_target_x"], cfg["place_target_y"]), "drop"))
+            raise PickPlaceStop("lost the box marker while aligning")
+        j = await _joints()
+        if prev is not None:
+            yaw_gain.observe(prev[2], marker["cx"] - prev[0])
+            reach_gain.observe(prev[3], marker["cy"] - prev[1])
+        dec = PP.place_step(marker, j, yaw_gain, reach_gain, cfg)
+        trace.append({"place_step": step, "marker": {k: round(v, 3) for k, v in marker.items()},
+                      "dyaw": dec.get("dyaw"), "dreach": dec.get("dreach"),
+                      "gains": [round(yaw_gain.gain, 2), round(reach_gain.gain, 2)]})
+        if dec["done"]:
+            images.append(_annotated(img, marker, "marker", (cfg["place_target_x"], cfg["place_target_y"]), "drop"))
+            break
+        prev = (marker["cx"], marker["cy"], dec["targets"]["base_yaw"] - j["base_yaw"], dec.get("dreach") or 0.0)
+        _, t_end = await _pp_move(dec["targets"], 0.0, trace, "place align")
+    else:
+        raise PickPlaceStop(f"couldn't align over the box marker in {cfg['place_max_steps']} steps")
+    j = await _joints()
+    ds, de = cfg["place_descend"]
+    for k in (1, 2):  # reach down into the box in two halves so a wall contact aborts early
+        await _pp_move({"shoulder": min(cfg["shoulder_max"], j["shoulder"] + ds * k / 2),
+                        "elbow": max(cfg["elbow_min"], j["elbow"] + de * k / 2)}, 2.0, trace,
+                       f"lower into box {k}/2")
+    await _pp_move({"gripper": cfg["gripper_release"]}, 1.2, trace, "release", allow_gripper_stall=True)
+    j = await _joints()
+    _, t_end = await _pp_move({"shoulder": j["shoulder"] - ds, "elbow": j["elbow"] - de}, 2.0, trace,
+                              "lift straight out of the box (reverse of the reach in)")
+    _, t_end = await _pp_move(dict(cfg["transit"]), 1.5, trace, "transit height")
+    jpeg, img = await _grab("gripper", newer_than=t_end)
+    still_held = PP.is_held(_blobs_norm(img, cfg, mask_jaws=False), cfg)
+    images.append(_annotated(img, None, "", None, ""))
+    return {"released": not still_held}
+
+
+@mcp.tool()
+async def pick_and_place(go_home: bool = True) -> list:
+    """Camera-guided pick of the motor and place into the box (flexible positions).
+
+    Needs: gripper and desk camera roles set; the motor (dark) somewhere on the table in front
+    of the arm; the box with a green or blue marker (sticker) on its floor, within reach.
+    Steps: home -> hover -> align on the motor with the gripper camera and grasp (one retry) ->
+    lift to carry height and check it's held -> scan for the box marker -> align it to the
+    calibrated drop spot -> lower -> release -> lift -> home. Every move runs through the
+    motion engine's safety checks; any problem stops and holds the arm and reports why.
+    Returns a step trace, annotated gripper frames at the grasp/drop decisions, and a final
+    desk-camera frame: judge success from that frame, not from the trace alone.
+    The run is logged to data/pickplace_runs.jsonl.
+    """
+    cfg = _pp_config()
+    trace: list = []
+    images: list = []
+    outcome, error, pick, place = "ok", None, None, None
+    t0 = time.time()
+    try:
+        await _pp_move(dict(cfg["home"]), 3.0, trace, "start from home")
+        await _pp_move({**cfg["hover"], "gripper": cfg["gripper_open"]}, 2.5, trace, "hover over the table")
+        pick = await _pp_pick(cfg, trace, images)
+        place = await _pp_place(cfg, trace, images)
+        if go_home:
+            await _pp_move(dict(cfg["home"]), 5.0, trace, "return home")
+    except PickPlaceStop as e:
+        outcome, error = "stopped", str(e)
+        log.warning("pick_and_place stopped: %s", e)
+    try:
+        _, desk = await _grab("desk", newer_than=time.time() - 0.2)
+        desk_img = _annotated(desk, None, "", None, "")
+    except PickPlaceStop as e:
+        desk_img = f"desk camera: {e}"
+    record = {"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "outcome": outcome, "error": error,
+              "pick": pick, "place": place, "elapsed_s": round(time.time() - t0, 1), "trace": trace}
+    PICKPLACE_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with PICKPLACE_LOG.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+    summary = {k: record[k] for k in ("outcome", "error", "pick", "place", "elapsed_s")}
+    summary["steps"] = len(trace)
+    summary["last_steps"] = trace[-6:]
+    summary["note"] = ("Arm is holding where it stopped." if outcome != "ok" else
+                       "Check the desk frame: the motor should be inside the box.")
+    return [json.dumps(summary), *images, "final desk camera:", desk_img]
+
+
+@mcp.tool()
+async def calibrate_drop_spot() -> dict:
+    """Save where the box marker appears in the gripper camera right now as the drop spot.
+
+    Use once (and after moving the gripper camera): put the arm in the view pose over the box
+    at the yaw where reaching by place_descend drops the motor onto the marker, then call this.
+    Writes place_target_x/y and place_view to data/pickplace.json."""
+    cfg = _pp_config()
+    jpeg, img = await _grab("gripper")
+    ms = [m for m in [PP.pick_marker(_markers_norm(img, cfg), cfg)] if m]
+    if not ms:
+        raise RuntimeError("no marker visible in the lower part of the gripper camera")
+    try:
+        saved = json.loads(PICKPLACE_FILE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        saved = {}
+    saved["place_target_x"], saved["place_target_y"] = round(ms[0]["cx"], 3), round(ms[0]["cy"], 3)
+    saved["place_view"] = {k: round(v, 3) for k, v in (await _joints()).items() if k in ("shoulder", "elbow")}
+    _save_json(PICKPLACE_FILE, saved)
+    return {"saved": saved, "file": str(PICKPLACE_FILE)}
 
 
 if __name__ == "__main__":
