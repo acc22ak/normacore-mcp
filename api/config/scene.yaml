@@ -1,0 +1,7 @@
+# Desk-camera image preparation. Pixel boxes are in the camera's native frame (853x480).
+camera_role: desk
+crop: null                 # [x0, y0, x1, y1] to crop to the table; null = whole frame
+max_long_side: 768
+jpeg_quality: 80
+max_frame_age_s: 2.0
+slots: {}                  # e.g. {A: [x0, y0, x1, y1], ...}; labels drawn on the image sent to Claude

@@ -1,0 +1,2905 @@
+{
+ "when": "2026-11-22T11:00:21",
+ "bus": "5B91043428",
+ "duration_s": 14.72,
+ "samples": 222,
+ "raw_samples": 1120,
+ "travel": {
+  "base_yaw": 0.314,
+  "shoulder": 0.725,
+  "upper_arm_roll": 0.537,
+  "elbow": 0.931,
+  "forearm_roll": 0.092,
+  "wrist_pitch": 0.463,
+  "wrist_roll": 0.123,
+  "gripper": 0.935
+ },
+ "waypoints": [
+  {
+   "t": 0.0,
+   "joints": {
+    "base_yaw": 0.618,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.503,
+    "elbow": 0.957,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.599,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 0.079,
+   "joints": {
+    "base_yaw": 0.613,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.48,
+    "elbow": 0.95,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.598,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 0.143,
+   "joints": {
+    "base_yaw": 0.613,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.469,
+    "elbow": 0.94,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.6,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 0.2,
+   "joints": {
+    "base_yaw": 0.613,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.46,
+    "elbow": 0.935,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.607,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 0.278,
+   "joints": {
+    "base_yaw": 0.613,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.453,
+    "elbow": 0.914,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.63,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 0.343,
+   "joints": {
+    "base_yaw": 0.613,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.454,
+    "elbow": 0.876,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.668,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 0.4,
+   "joints": {
+    "base_yaw": 0.613,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.454,
+    "elbow": 0.841,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.688,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 0.478,
+   "joints": {
+    "base_yaw": 0.614,
+    "shoulder": 0.005,
+    "upper_arm_roll": 0.461,
+    "elbow": 0.809,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.699,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 0.543,
+   "joints": {
+    "base_yaw": 0.614,
+    "shoulder": 0.007,
+    "upper_arm_roll": 0.479,
+    "elbow": 0.768,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.7,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 0.601,
+   "joints": {
+    "base_yaw": 0.614,
+    "shoulder": 0.01,
+    "upper_arm_roll": 0.493,
+    "elbow": 0.747,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.7,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 0.678,
+   "joints": {
+    "base_yaw": 0.614,
+    "shoulder": 0.01,
+    "upper_arm_roll": 0.511,
+    "elbow": 0.701,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.7,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 0.744,
+   "joints": {
+    "base_yaw": 0.615,
+    "shoulder": 0.012,
+    "upper_arm_roll": 0.537,
+    "elbow": 0.669,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.699,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 0.801,
+   "joints": {
+    "base_yaw": 0.615,
+    "shoulder": 0.014,
+    "upper_arm_roll": 0.55,
+    "elbow": 0.636,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.699,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 0.878,
+   "joints": {
+    "base_yaw": 0.615,
+    "shoulder": 0.025,
+    "upper_arm_roll": 0.573,
+    "elbow": 0.604,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.699,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 0.945,
+   "joints": {
+    "base_yaw": 0.615,
+    "shoulder": 0.039,
+    "upper_arm_roll": 0.594,
+    "elbow": 0.565,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.699,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 1.001,
+   "joints": {
+    "base_yaw": 0.615,
+    "shoulder": 0.05,
+    "upper_arm_roll": 0.608,
+    "elbow": 0.548,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.699,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 1.078,
+   "joints": {
+    "base_yaw": 0.615,
+    "shoulder": 0.064,
+    "upper_arm_roll": 0.624,
+    "elbow": 0.518,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.699,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 1.144,
+   "joints": {
+    "base_yaw": 0.614,
+    "shoulder": 0.074,
+    "upper_arm_roll": 0.644,
+    "elbow": 0.489,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.699,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 1.2,
+   "joints": {
+    "base_yaw": 0.613,
+    "shoulder": 0.082,
+    "upper_arm_roll": 0.657,
+    "elbow": 0.475,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.699,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 1.278,
+   "joints": {
+    "base_yaw": 0.613,
+    "shoulder": 0.098,
+    "upper_arm_roll": 0.675,
+    "elbow": 0.448,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.697,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 1.344,
+   "joints": {
+    "base_yaw": 0.612,
+    "shoulder": 0.118,
+    "upper_arm_roll": 0.691,
+    "elbow": 0.417,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.675,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 1.4,
+   "joints": {
+    "base_yaw": 0.606,
+    "shoulder": 0.132,
+    "upper_arm_roll": 0.698,
+    "elbow": 0.399,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.653,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 1.478,
+   "joints": {
+    "base_yaw": 0.584,
+    "shoulder": 0.165,
+    "upper_arm_roll": 0.708,
+    "elbow": 0.381,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.629,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 1.544,
+   "joints": {
+    "base_yaw": 0.567,
+    "shoulder": 0.201,
+    "upper_arm_roll": 0.713,
+    "elbow": 0.36,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.609,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 1.6,
+   "joints": {
+    "base_yaw": 0.557,
+    "shoulder": 0.222,
+    "upper_arm_roll": 0.713,
+    "elbow": 0.343,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.601,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 1.678,
+   "joints": {
+    "base_yaw": 0.541,
+    "shoulder": 0.271,
+    "upper_arm_roll": 0.713,
+    "elbow": 0.327,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.593,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 1.743,
+   "joints": {
+    "base_yaw": 0.528,
+    "shoulder": 0.304,
+    "upper_arm_roll": 0.713,
+    "elbow": 0.304,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.593,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 1.8,
+   "joints": {
+    "base_yaw": 0.519,
+    "shoulder": 0.331,
+    "upper_arm_roll": 0.712,
+    "elbow": 0.29,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.593,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 1.878,
+   "joints": {
+    "base_yaw": 0.51,
+    "shoulder": 0.36,
+    "upper_arm_roll": 0.712,
+    "elbow": 0.263,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.593,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 1.945,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.399,
+    "upper_arm_roll": 0.712,
+    "elbow": 0.232,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.593,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 2.001,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.429,
+    "upper_arm_roll": 0.712,
+    "elbow": 0.213,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.593,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 2.078,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.47,
+    "upper_arm_roll": 0.712,
+    "elbow": 0.176,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.593,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 2.143,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.503,
+    "upper_arm_roll": 0.712,
+    "elbow": 0.139,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.593,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 2.2,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.532,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.116,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.593,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 2.278,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.573,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.074,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.593,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 2.344,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.599,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.038,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.595,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 2.4,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.616,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.595,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 2.478,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.625,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.598,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 2.544,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.634,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.617,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 2.601,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.64,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.624,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 2.678,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.649,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.638,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 2.743,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.658,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.646,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 2.8,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.662,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.653,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 2.878,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.671,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.663,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 2.943,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.678,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.668,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 3.001,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.682,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.668,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 3.078,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.687,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.668,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 3.144,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.691,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.668,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 3.2,
+   "joints": {
+    "base_yaw": 0.507,
+    "shoulder": 0.696,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.668,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 3.278,
+   "joints": {
+    "base_yaw": 0.507,
+    "shoulder": 0.705,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.667,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 3.345,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.709,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.539,
+    "wrist_pitch": 0.667,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 3.399,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.714,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.536,
+    "wrist_pitch": 0.666,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 3.478,
+   "joints": {
+    "base_yaw": 0.506,
+    "shoulder": 0.717,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.52,
+    "wrist_pitch": 0.668,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 3.543,
+   "joints": {
+    "base_yaw": 0.505,
+    "shoulder": 0.716,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.51,
+    "wrist_pitch": 0.668,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 3.601,
+   "joints": {
+    "base_yaw": 0.499,
+    "shoulder": 0.716,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.505,
+    "wrist_pitch": 0.669,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 3.678,
+   "joints": {
+    "base_yaw": 0.496,
+    "shoulder": 0.716,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.498,
+    "wrist_pitch": 0.682,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 3.744,
+   "joints": {
+    "base_yaw": 0.496,
+    "shoulder": 0.716,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.703,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 3.8,
+   "joints": {
+    "base_yaw": 0.495,
+    "shoulder": 0.717,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.709,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 3.878,
+   "joints": {
+    "base_yaw": 0.488,
+    "shoulder": 0.721,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.711,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 3.944,
+   "joints": {
+    "base_yaw": 0.488,
+    "shoulder": 0.724,
+    "upper_arm_roll": 0.711,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.711,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 4.0,
+   "joints": {
+    "base_yaw": 0.488,
+    "shoulder": 0.724,
+    "upper_arm_roll": 0.712,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.711,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 4.078,
+   "joints": {
+    "base_yaw": 0.489,
+    "shoulder": 0.725,
+    "upper_arm_roll": 0.712,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.711,
+    "wrist_roll": 0.721,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 4.144,
+   "joints": {
+    "base_yaw": 0.49,
+    "shoulder": 0.725,
+    "upper_arm_roll": 0.712,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.711,
+    "wrist_roll": 0.721,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 4.2,
+   "joints": {
+    "base_yaw": 0.49,
+    "shoulder": 0.725,
+    "upper_arm_roll": 0.712,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.711,
+    "wrist_roll": 0.721,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 4.278,
+   "joints": {
+    "base_yaw": 0.491,
+    "shoulder": 0.725,
+    "upper_arm_roll": 0.712,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.712,
+    "wrist_roll": 0.721,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 4.343,
+   "joints": {
+    "base_yaw": 0.491,
+    "shoulder": 0.725,
+    "upper_arm_roll": 0.712,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.713,
+    "wrist_roll": 0.721,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 4.401,
+   "joints": {
+    "base_yaw": 0.49,
+    "shoulder": 0.724,
+    "upper_arm_roll": 0.712,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.713,
+    "wrist_roll": 0.721,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 4.478,
+   "joints": {
+    "base_yaw": 0.488,
+    "shoulder": 0.724,
+    "upper_arm_roll": 0.712,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.713,
+    "wrist_roll": 0.721,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 4.544,
+   "joints": {
+    "base_yaw": 0.486,
+    "shoulder": 0.723,
+    "upper_arm_roll": 0.712,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.713,
+    "wrist_roll": 0.721,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 4.6,
+   "joints": {
+    "base_yaw": 0.478,
+    "shoulder": 0.719,
+    "upper_arm_roll": 0.713,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.713,
+    "wrist_roll": 0.721,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 4.678,
+   "joints": {
+    "base_yaw": 0.475,
+    "shoulder": 0.709,
+    "upper_arm_roll": 0.718,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.713,
+    "wrist_roll": 0.721,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 4.743,
+   "joints": {
+    "base_yaw": 0.474,
+    "shoulder": 0.699,
+    "upper_arm_roll": 0.727,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.713,
+    "wrist_roll": 0.721,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 4.8,
+   "joints": {
+    "base_yaw": 0.474,
+    "shoulder": 0.694,
+    "upper_arm_roll": 0.732,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.713,
+    "wrist_roll": 0.721,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 4.878,
+   "joints": {
+    "base_yaw": 0.475,
+    "shoulder": 0.691,
+    "upper_arm_roll": 0.737,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.712,
+    "wrist_roll": 0.721,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 4.944,
+   "joints": {
+    "base_yaw": 0.475,
+    "shoulder": 0.694,
+    "upper_arm_roll": 0.742,
+    "elbow": 0.027,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.711,
+    "wrist_roll": 0.721,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 5.0,
+   "joints": {
+    "base_yaw": 0.475,
+    "shoulder": 0.694,
+    "upper_arm_roll": 0.752,
+    "elbow": 0.026,
+    "forearm_roll": 0.496,
+    "wrist_pitch": 0.71,
+    "wrist_roll": 0.721,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 5.078,
+   "joints": {
+    "base_yaw": 0.474,
+    "shoulder": 0.694,
+    "upper_arm_roll": 0.761,
+    "elbow": 0.026,
+    "forearm_roll": 0.495,
+    "wrist_pitch": 0.69,
+    "wrist_roll": 0.721,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 5.143,
+   "joints": {
+    "base_yaw": 0.474,
+    "shoulder": 0.694,
+    "upper_arm_roll": 0.775,
+    "elbow": 0.026,
+    "forearm_roll": 0.49,
+    "wrist_pitch": 0.647,
+    "wrist_roll": 0.721,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 5.199,
+   "joints": {
+    "base_yaw": 0.474,
+    "shoulder": 0.694,
+    "upper_arm_roll": 0.782,
+    "elbow": 0.026,
+    "forearm_roll": 0.477,
+    "wrist_pitch": 0.614,
+    "wrist_roll": 0.721,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 5.278,
+   "joints": {
+    "base_yaw": 0.474,
+    "shoulder": 0.689,
+    "upper_arm_roll": 0.809,
+    "elbow": 0.026,
+    "forearm_roll": 0.463,
+    "wrist_pitch": 0.577,
+    "wrist_roll": 0.721,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 5.343,
+   "joints": {
+    "base_yaw": 0.477,
+    "shoulder": 0.686,
+    "upper_arm_roll": 0.821,
+    "elbow": 0.026,
+    "forearm_roll": 0.449,
+    "wrist_pitch": 0.538,
+    "wrist_roll": 0.723,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 5.4,
+   "joints": {
+    "base_yaw": 0.479,
+    "shoulder": 0.681,
+    "upper_arm_roll": 0.826,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.529,
+    "wrist_roll": 0.729,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 5.478,
+   "joints": {
+    "base_yaw": 0.484,
+    "shoulder": 0.675,
+    "upper_arm_roll": 0.831,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.536,
+    "wrist_roll": 0.743,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 5.544,
+   "joints": {
+    "base_yaw": 0.484,
+    "shoulder": 0.671,
+    "upper_arm_roll": 0.833,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.547,
+    "wrist_roll": 0.755,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 5.601,
+   "joints": {
+    "base_yaw": 0.484,
+    "shoulder": 0.669,
+    "upper_arm_roll": 0.833,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.553,
+    "wrist_roll": 0.766,
+    "gripper": 0.015
+   }
+  },
+  {
+   "t": 5.678,
+   "joints": {
+    "base_yaw": 0.484,
+    "shoulder": 0.669,
+    "upper_arm_roll": 0.833,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.553,
+    "wrist_roll": 0.776,
+    "gripper": 0.015
+   }
+  },
+  {
+   "t": 5.745,
+   "joints": {
+    "base_yaw": 0.483,
+    "shoulder": 0.669,
+    "upper_arm_roll": 0.833,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.553,
+    "wrist_roll": 0.784,
+    "gripper": 0.015
+   }
+  },
+  {
+   "t": 5.801,
+   "joints": {
+    "base_yaw": 0.483,
+    "shoulder": 0.669,
+    "upper_arm_roll": 0.833,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.553,
+    "wrist_roll": 0.788,
+    "gripper": 0.015
+   }
+  },
+  {
+   "t": 5.878,
+   "joints": {
+    "base_yaw": 0.483,
+    "shoulder": 0.669,
+    "upper_arm_roll": 0.833,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.553,
+    "wrist_roll": 0.79,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 5.944,
+   "joints": {
+    "base_yaw": 0.483,
+    "shoulder": 0.669,
+    "upper_arm_roll": 0.833,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.553,
+    "wrist_roll": 0.79,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 6.0,
+   "joints": {
+    "base_yaw": 0.483,
+    "shoulder": 0.667,
+    "upper_arm_roll": 0.833,
+    "elbow": 0.026,
+    "forearm_roll": 0.448,
+    "wrist_pitch": 0.553,
+    "wrist_roll": 0.791,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 6.078,
+   "joints": {
+    "base_yaw": 0.484,
+    "shoulder": 0.66,
+    "upper_arm_roll": 0.837,
+    "elbow": 0.026,
+    "forearm_roll": 0.448,
+    "wrist_pitch": 0.554,
+    "wrist_roll": 0.797,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 6.144,
+   "joints": {
+    "base_yaw": 0.484,
+    "shoulder": 0.655,
+    "upper_arm_roll": 0.842,
+    "elbow": 0.026,
+    "forearm_roll": 0.448,
+    "wrist_pitch": 0.555,
+    "wrist_roll": 0.812,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 6.2,
+   "joints": {
+    "base_yaw": 0.484,
+    "shoulder": 0.647,
+    "upper_arm_roll": 0.85,
+    "elbow": 0.026,
+    "forearm_roll": 0.448,
+    "wrist_pitch": 0.555,
+    "wrist_roll": 0.82,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 6.278,
+   "joints": {
+    "base_yaw": 0.484,
+    "shoulder": 0.638,
+    "upper_arm_roll": 0.868,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.555,
+    "wrist_roll": 0.825,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 6.343,
+   "joints": {
+    "base_yaw": 0.485,
+    "shoulder": 0.629,
+    "upper_arm_roll": 0.874,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.555,
+    "wrist_roll": 0.825,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 6.4,
+   "joints": {
+    "base_yaw": 0.485,
+    "shoulder": 0.623,
+    "upper_arm_roll": 0.877,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.555,
+    "wrist_roll": 0.825,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 6.478,
+   "joints": {
+    "base_yaw": 0.485,
+    "shoulder": 0.621,
+    "upper_arm_roll": 0.88,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.555,
+    "wrist_roll": 0.825,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 6.544,
+   "joints": {
+    "base_yaw": 0.485,
+    "shoulder": 0.62,
+    "upper_arm_roll": 0.879,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.555,
+    "wrist_roll": 0.825,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 6.6,
+   "joints": {
+    "base_yaw": 0.485,
+    "shoulder": 0.62,
+    "upper_arm_roll": 0.879,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.554,
+    "wrist_roll": 0.825,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 6.678,
+   "joints": {
+    "base_yaw": 0.484,
+    "shoulder": 0.62,
+    "upper_arm_roll": 0.88,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.554,
+    "wrist_roll": 0.825,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 6.743,
+   "joints": {
+    "base_yaw": 0.483,
+    "shoulder": 0.619,
+    "upper_arm_roll": 0.879,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.554,
+    "wrist_roll": 0.825,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 6.8,
+   "joints": {
+    "base_yaw": 0.483,
+    "shoulder": 0.619,
+    "upper_arm_roll": 0.879,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.554,
+    "wrist_roll": 0.825,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 6.878,
+   "joints": {
+    "base_yaw": 0.483,
+    "shoulder": 0.619,
+    "upper_arm_roll": 0.879,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.557,
+    "wrist_roll": 0.825,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 6.944,
+   "joints": {
+    "base_yaw": 0.483,
+    "shoulder": 0.619,
+    "upper_arm_roll": 0.879,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.563,
+    "wrist_roll": 0.825,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 7.0,
+   "joints": {
+    "base_yaw": 0.483,
+    "shoulder": 0.619,
+    "upper_arm_roll": 0.879,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.568,
+    "wrist_roll": 0.825,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 7.078,
+   "joints": {
+    "base_yaw": 0.483,
+    "shoulder": 0.619,
+    "upper_arm_roll": 0.879,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.581,
+    "wrist_roll": 0.825,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 7.143,
+   "joints": {
+    "base_yaw": 0.483,
+    "shoulder": 0.619,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.59,
+    "wrist_roll": 0.825,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 7.2,
+   "joints": {
+    "base_yaw": 0.483,
+    "shoulder": 0.619,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.59,
+    "wrist_roll": 0.825,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 7.278,
+   "joints": {
+    "base_yaw": 0.483,
+    "shoulder": 0.619,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.589,
+    "wrist_roll": 0.825,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 7.343,
+   "joints": {
+    "base_yaw": 0.483,
+    "shoulder": 0.619,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.589,
+    "wrist_roll": 0.825,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 7.399,
+   "joints": {
+    "base_yaw": 0.483,
+    "shoulder": 0.62,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.589,
+    "wrist_roll": 0.825,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 7.478,
+   "joints": {
+    "base_yaw": 0.481,
+    "shoulder": 0.619,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.59,
+    "wrist_roll": 0.825,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 7.544,
+   "joints": {
+    "base_yaw": 0.476,
+    "shoulder": 0.619,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.591,
+    "wrist_roll": 0.825,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 7.601,
+   "joints": {
+    "base_yaw": 0.476,
+    "shoulder": 0.619,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.591,
+    "wrist_roll": 0.825,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 7.678,
+   "joints": {
+    "base_yaw": 0.476,
+    "shoulder": 0.619,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.589,
+    "wrist_roll": 0.825,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 7.744,
+   "joints": {
+    "base_yaw": 0.476,
+    "shoulder": 0.619,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.589,
+    "wrist_roll": 0.825,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 7.8,
+   "joints": {
+    "base_yaw": 0.476,
+    "shoulder": 0.619,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.589,
+    "wrist_roll": 0.825,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 7.878,
+   "joints": {
+    "base_yaw": 0.476,
+    "shoulder": 0.619,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.447,
+    "wrist_pitch": 0.589,
+    "wrist_roll": 0.825,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 7.944,
+   "joints": {
+    "base_yaw": 0.476,
+    "shoulder": 0.618,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.448,
+    "wrist_pitch": 0.59,
+    "wrist_roll": 0.826,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 8.0,
+   "joints": {
+    "base_yaw": 0.476,
+    "shoulder": 0.616,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.448,
+    "wrist_pitch": 0.59,
+    "wrist_roll": 0.826,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 8.078,
+   "joints": {
+    "base_yaw": 0.476,
+    "shoulder": 0.615,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.591,
+    "wrist_roll": 0.826,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 8.144,
+   "joints": {
+    "base_yaw": 0.476,
+    "shoulder": 0.616,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.591,
+    "wrist_roll": 0.826,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 8.2,
+   "joints": {
+    "base_yaw": 0.476,
+    "shoulder": 0.616,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.591,
+    "wrist_roll": 0.826,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 8.278,
+   "joints": {
+    "base_yaw": 0.477,
+    "shoulder": 0.615,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.591,
+    "wrist_roll": 0.826,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 8.343,
+   "joints": {
+    "base_yaw": 0.477,
+    "shoulder": 0.609,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.591,
+    "wrist_roll": 0.826,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 8.4,
+   "joints": {
+    "base_yaw": 0.477,
+    "shoulder": 0.603,
+    "upper_arm_roll": 0.878,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.591,
+    "wrist_roll": 0.826,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 8.478,
+   "joints": {
+    "base_yaw": 0.477,
+    "shoulder": 0.589,
+    "upper_arm_roll": 0.881,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.59,
+    "wrist_roll": 0.826,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 8.544,
+   "joints": {
+    "base_yaw": 0.477,
+    "shoulder": 0.577,
+    "upper_arm_roll": 0.89,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.59,
+    "wrist_roll": 0.826,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 8.601,
+   "joints": {
+    "base_yaw": 0.477,
+    "shoulder": 0.569,
+    "upper_arm_roll": 0.898,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.59,
+    "wrist_roll": 0.826,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 8.679,
+   "joints": {
+    "base_yaw": 0.477,
+    "shoulder": 0.557,
+    "upper_arm_roll": 0.909,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.59,
+    "wrist_roll": 0.826,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 8.744,
+   "joints": {
+    "base_yaw": 0.479,
+    "shoulder": 0.551,
+    "upper_arm_roll": 0.915,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.59,
+    "wrist_roll": 0.826,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 8.801,
+   "joints": {
+    "base_yaw": 0.481,
+    "shoulder": 0.55,
+    "upper_arm_roll": 0.916,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.589,
+    "wrist_roll": 0.826,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 8.878,
+   "joints": {
+    "base_yaw": 0.488,
+    "shoulder": 0.55,
+    "upper_arm_roll": 0.916,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.588,
+    "wrist_roll": 0.826,
+    "gripper": 0.016
+   }
+  },
+  {
+   "t": 8.943,
+   "joints": {
+    "base_yaw": 0.488,
+    "shoulder": 0.55,
+    "upper_arm_roll": 0.916,
+    "elbow": 0.026,
+    "forearm_roll": 0.454,
+    "wrist_pitch": 0.588,
+    "wrist_roll": 0.826,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 9.001,
+   "joints": {
+    "base_yaw": 0.488,
+    "shoulder": 0.551,
+    "upper_arm_roll": 0.916,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.588,
+    "wrist_roll": 0.826,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 9.078,
+   "joints": {
+    "base_yaw": 0.488,
+    "shoulder": 0.55,
+    "upper_arm_roll": 0.92,
+    "elbow": 0.026,
+    "forearm_roll": 0.454,
+    "wrist_pitch": 0.588,
+    "wrist_roll": 0.826,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 9.143,
+   "joints": {
+    "base_yaw": 0.488,
+    "shoulder": 0.547,
+    "upper_arm_roll": 0.935,
+    "elbow": 0.026,
+    "forearm_roll": 0.454,
+    "wrist_pitch": 0.577,
+    "wrist_roll": 0.826,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 9.2,
+   "joints": {
+    "base_yaw": 0.488,
+    "shoulder": 0.542,
+    "upper_arm_roll": 0.942,
+    "elbow": 0.026,
+    "forearm_roll": 0.454,
+    "wrist_pitch": 0.565,
+    "wrist_roll": 0.826,
+    "gripper": 0.029
+   }
+  },
+  {
+   "t": 9.278,
+   "joints": {
+    "base_yaw": 0.488,
+    "shoulder": 0.539,
+    "upper_arm_roll": 0.954,
+    "elbow": 0.026,
+    "forearm_roll": 0.454,
+    "wrist_pitch": 0.55,
+    "wrist_roll": 0.834,
+    "gripper": 0.082
+   }
+  },
+  {
+   "t": 9.344,
+   "joints": {
+    "base_yaw": 0.488,
+    "shoulder": 0.532,
+    "upper_arm_roll": 0.963,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.536,
+    "wrist_roll": 0.841,
+    "gripper": 0.206
+   }
+  },
+  {
+   "t": 9.4,
+   "joints": {
+    "base_yaw": 0.49,
+    "shoulder": 0.528,
+    "upper_arm_roll": 0.964,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.529,
+    "wrist_roll": 0.843,
+    "gripper": 0.3
+   }
+  },
+  {
+   "t": 9.478,
+   "joints": {
+    "base_yaw": 0.499,
+    "shoulder": 0.523,
+    "upper_arm_roll": 0.964,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.514,
+    "wrist_roll": 0.843,
+    "gripper": 0.403
+   }
+  },
+  {
+   "t": 9.543,
+   "joints": {
+    "base_yaw": 0.501,
+    "shoulder": 0.523,
+    "upper_arm_roll": 0.964,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.504,
+    "wrist_roll": 0.843,
+    "gripper": 0.537
+   }
+  },
+  {
+   "t": 9.601,
+   "joints": {
+    "base_yaw": 0.505,
+    "shoulder": 0.523,
+    "upper_arm_roll": 0.964,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.495,
+    "wrist_roll": 0.843,
+    "gripper": 0.622
+   }
+  },
+  {
+   "t": 9.678,
+   "joints": {
+    "base_yaw": 0.505,
+    "shoulder": 0.523,
+    "upper_arm_roll": 0.964,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.491,
+    "wrist_roll": 0.843,
+    "gripper": 0.721
+   }
+  },
+  {
+   "t": 9.744,
+   "joints": {
+    "base_yaw": 0.504,
+    "shoulder": 0.524,
+    "upper_arm_roll": 0.964,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.491,
+    "wrist_roll": 0.843,
+    "gripper": 0.833
+   }
+  },
+  {
+   "t": 9.8,
+   "joints": {
+    "base_yaw": 0.504,
+    "shoulder": 0.526,
+    "upper_arm_roll": 0.964,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.484,
+    "wrist_roll": 0.843,
+    "gripper": 0.878
+   }
+  },
+  {
+   "t": 9.878,
+   "joints": {
+    "base_yaw": 0.504,
+    "shoulder": 0.542,
+    "upper_arm_roll": 0.964,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.472,
+    "wrist_roll": 0.843,
+    "gripper": 0.934
+   }
+  },
+  {
+   "t": 9.944,
+   "joints": {
+    "base_yaw": 0.504,
+    "shoulder": 0.546,
+    "upper_arm_roll": 0.964,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.457,
+    "wrist_roll": 0.843,
+    "gripper": 0.943
+   }
+  },
+  {
+   "t": 10.001,
+   "joints": {
+    "base_yaw": 0.504,
+    "shoulder": 0.546,
+    "upper_arm_roll": 0.964,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.455,
+    "wrist_roll": 0.843,
+    "gripper": 0.943
+   }
+  },
+  {
+   "t": 10.078,
+   "joints": {
+    "base_yaw": 0.503,
+    "shoulder": 0.546,
+    "upper_arm_roll": 0.964,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.456,
+    "wrist_roll": 0.843,
+    "gripper": 0.943
+   }
+  },
+  {
+   "t": 10.144,
+   "joints": {
+    "base_yaw": 0.503,
+    "shoulder": 0.546,
+    "upper_arm_roll": 0.964,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.456,
+    "wrist_roll": 0.843,
+    "gripper": 0.943
+   }
+  },
+  {
+   "t": 10.2,
+   "joints": {
+    "base_yaw": 0.503,
+    "shoulder": 0.546,
+    "upper_arm_roll": 0.964,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.456,
+    "wrist_roll": 0.843,
+    "gripper": 0.942
+   }
+  },
+  {
+   "t": 10.278,
+   "joints": {
+    "base_yaw": 0.504,
+    "shoulder": 0.546,
+    "upper_arm_roll": 0.964,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.456,
+    "wrist_roll": 0.843,
+    "gripper": 0.93
+   }
+  },
+  {
+   "t": 10.343,
+   "joints": {
+    "base_yaw": 0.504,
+    "shoulder": 0.547,
+    "upper_arm_roll": 0.963,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.456,
+    "wrist_roll": 0.843,
+    "gripper": 0.848
+   }
+  },
+  {
+   "t": 10.4,
+   "joints": {
+    "base_yaw": 0.504,
+    "shoulder": 0.547,
+    "upper_arm_roll": 0.963,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.456,
+    "wrist_roll": 0.843,
+    "gripper": 0.752
+   }
+  },
+  {
+   "t": 10.478,
+   "joints": {
+    "base_yaw": 0.504,
+    "shoulder": 0.547,
+    "upper_arm_roll": 0.963,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.456,
+    "wrist_roll": 0.843,
+    "gripper": 0.591
+   }
+  },
+  {
+   "t": 10.544,
+   "joints": {
+    "base_yaw": 0.504,
+    "shoulder": 0.546,
+    "upper_arm_roll": 0.963,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.456,
+    "wrist_roll": 0.843,
+    "gripper": 0.471
+   }
+  },
+  {
+   "t": 10.601,
+   "joints": {
+    "base_yaw": 0.504,
+    "shoulder": 0.546,
+    "upper_arm_roll": 0.963,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.456,
+    "wrist_roll": 0.843,
+    "gripper": 0.392
+   }
+  },
+  {
+   "t": 10.679,
+   "joints": {
+    "base_yaw": 0.504,
+    "shoulder": 0.547,
+    "upper_arm_roll": 0.963,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.456,
+    "wrist_roll": 0.844,
+    "gripper": 0.265
+   }
+  },
+  {
+   "t": 10.743,
+   "joints": {
+    "base_yaw": 0.504,
+    "shoulder": 0.547,
+    "upper_arm_roll": 0.963,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.457,
+    "wrist_roll": 0.844,
+    "gripper": 0.159
+   }
+  },
+  {
+   "t": 10.801,
+   "joints": {
+    "base_yaw": 0.504,
+    "shoulder": 0.547,
+    "upper_arm_roll": 0.963,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.457,
+    "wrist_roll": 0.844,
+    "gripper": 0.096
+   }
+  },
+  {
+   "t": 10.878,
+   "joints": {
+    "base_yaw": 0.504,
+    "shoulder": 0.547,
+    "upper_arm_roll": 0.963,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.457,
+    "wrist_roll": 0.844,
+    "gripper": 0.008
+   }
+  },
+  {
+   "t": 10.944,
+   "joints": {
+    "base_yaw": 0.504,
+    "shoulder": 0.547,
+    "upper_arm_roll": 0.963,
+    "elbow": 0.026,
+    "forearm_roll": 0.453,
+    "wrist_pitch": 0.468,
+    "wrist_roll": 0.844,
+    "gripper": 0.025
+   }
+  },
+  {
+   "t": 11.0,
+   "joints": {
+    "base_yaw": 0.503,
+    "shoulder": 0.547,
+    "upper_arm_roll": 0.963,
+    "elbow": 0.026,
+    "forearm_roll": 0.454,
+    "wrist_pitch": 0.479,
+    "wrist_roll": 0.844,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 11.078,
+   "joints": {
+    "base_yaw": 0.502,
+    "shoulder": 0.547,
+    "upper_arm_roll": 0.961,
+    "elbow": 0.026,
+    "forearm_roll": 0.454,
+    "wrist_pitch": 0.494,
+    "wrist_roll": 0.844,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 11.143,
+   "joints": {
+    "base_yaw": 0.501,
+    "shoulder": 0.547,
+    "upper_arm_roll": 0.961,
+    "elbow": 0.026,
+    "forearm_roll": 0.454,
+    "wrist_pitch": 0.498,
+    "wrist_roll": 0.844,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 11.2,
+   "joints": {
+    "base_yaw": 0.501,
+    "shoulder": 0.546,
+    "upper_arm_roll": 0.961,
+    "elbow": 0.026,
+    "forearm_roll": 0.454,
+    "wrist_pitch": 0.498,
+    "wrist_roll": 0.844,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 11.277,
+   "joints": {
+    "base_yaw": 0.501,
+    "shoulder": 0.545,
+    "upper_arm_roll": 0.961,
+    "elbow": 0.026,
+    "forearm_roll": 0.454,
+    "wrist_pitch": 0.502,
+    "wrist_roll": 0.844,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 11.343,
+   "joints": {
+    "base_yaw": 0.5,
+    "shoulder": 0.531,
+    "upper_arm_roll": 0.961,
+    "elbow": 0.026,
+    "forearm_roll": 0.454,
+    "wrist_pitch": 0.526,
+    "wrist_roll": 0.844,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 11.402,
+   "joints": {
+    "base_yaw": 0.494,
+    "shoulder": 0.517,
+    "upper_arm_roll": 0.961,
+    "elbow": 0.026,
+    "forearm_roll": 0.458,
+    "wrist_pitch": 0.544,
+    "wrist_roll": 0.844,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 11.478,
+   "joints": {
+    "base_yaw": 0.485,
+    "shoulder": 0.5,
+    "upper_arm_roll": 0.956,
+    "elbow": 0.026,
+    "forearm_roll": 0.462,
+    "wrist_pitch": 0.59,
+    "wrist_roll": 0.844,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 11.544,
+   "joints": {
+    "base_yaw": 0.48,
+    "shoulder": 0.477,
+    "upper_arm_roll": 0.95,
+    "elbow": 0.026,
+    "forearm_roll": 0.464,
+    "wrist_pitch": 0.627,
+    "wrist_roll": 0.844,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 11.6,
+   "joints": {
+    "base_yaw": 0.472,
+    "shoulder": 0.465,
+    "upper_arm_roll": 0.949,
+    "elbow": 0.026,
+    "forearm_roll": 0.464,
+    "wrist_pitch": 0.644,
+    "wrist_roll": 0.844,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 11.678,
+   "joints": {
+    "base_yaw": 0.469,
+    "shoulder": 0.427,
+    "upper_arm_roll": 0.949,
+    "elbow": 0.026,
+    "forearm_roll": 0.464,
+    "wrist_pitch": 0.675,
+    "wrist_roll": 0.844,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 11.745,
+   "joints": {
+    "base_yaw": 0.468,
+    "shoulder": 0.397,
+    "upper_arm_roll": 0.949,
+    "elbow": 0.026,
+    "forearm_roll": 0.465,
+    "wrist_pitch": 0.711,
+    "wrist_roll": 0.843,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 11.8,
+   "joints": {
+    "base_yaw": 0.456,
+    "shoulder": 0.365,
+    "upper_arm_roll": 0.949,
+    "elbow": 0.026,
+    "forearm_roll": 0.465,
+    "wrist_pitch": 0.729,
+    "wrist_roll": 0.843,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 11.878,
+   "joints": {
+    "base_yaw": 0.446,
+    "shoulder": 0.325,
+    "upper_arm_roll": 0.949,
+    "elbow": 0.026,
+    "forearm_roll": 0.465,
+    "wrist_pitch": 0.76,
+    "wrist_roll": 0.836,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 11.944,
+   "joints": {
+    "base_yaw": 0.43,
+    "shoulder": 0.274,
+    "upper_arm_roll": 0.961,
+    "elbow": 0.027,
+    "forearm_roll": 0.465,
+    "wrist_pitch": 0.8,
+    "wrist_roll": 0.829,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 12.0,
+   "joints": {
+    "base_yaw": 0.421,
+    "shoulder": 0.234,
+    "upper_arm_roll": 0.973,
+    "elbow": 0.027,
+    "forearm_roll": 0.465,
+    "wrist_pitch": 0.821,
+    "wrist_roll": 0.827,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 12.078,
+   "joints": {
+    "base_yaw": 0.407,
+    "shoulder": 0.192,
+    "upper_arm_roll": 0.987,
+    "elbow": 0.029,
+    "forearm_roll": 0.465,
+    "wrist_pitch": 0.846,
+    "wrist_roll": 0.826,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 12.145,
+   "joints": {
+    "base_yaw": 0.391,
+    "shoulder": 0.135,
+    "upper_arm_roll": 0.99,
+    "elbow": 0.051,
+    "forearm_roll": 0.465,
+    "wrist_pitch": 0.866,
+    "wrist_roll": 0.826,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 12.2,
+   "joints": {
+    "base_yaw": 0.383,
+    "shoulder": 0.088,
+    "upper_arm_roll": 0.99,
+    "elbow": 0.082,
+    "forearm_roll": 0.465,
+    "wrist_pitch": 0.874,
+    "wrist_roll": 0.826,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 12.278,
+   "joints": {
+    "base_yaw": 0.362,
+    "shoulder": 0.03,
+    "upper_arm_roll": 0.99,
+    "elbow": 0.119,
+    "forearm_roll": 0.465,
+    "wrist_pitch": 0.883,
+    "wrist_roll": 0.826,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 12.343,
+   "joints": {
+    "base_yaw": 0.351,
+    "shoulder": 0.0,
+    "upper_arm_roll": 0.987,
+    "elbow": 0.163,
+    "forearm_roll": 0.465,
+    "wrist_pitch": 0.899,
+    "wrist_roll": 0.826,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 12.4,
+   "joints": {
+    "base_yaw": 0.348,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.974,
+    "elbow": 0.158,
+    "forearm_roll": 0.465,
+    "wrist_pitch": 0.904,
+    "wrist_roll": 0.824,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 12.478,
+   "joints": {
+    "base_yaw": 0.339,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.973,
+    "elbow": 0.15,
+    "forearm_roll": 0.465,
+    "wrist_pitch": 0.904,
+    "wrist_roll": 0.817,
+    "gripper": 0.019
+   }
+  },
+  {
+   "t": 12.543,
+   "joints": {
+    "base_yaw": 0.338,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.973,
+    "elbow": 0.15,
+    "forearm_roll": 0.465,
+    "wrist_pitch": 0.905,
+    "wrist_roll": 0.81,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 12.601,
+   "joints": {
+    "base_yaw": 0.33,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.973,
+    "elbow": 0.151,
+    "forearm_roll": 0.466,
+    "wrist_pitch": 0.905,
+    "wrist_roll": 0.807,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 12.678,
+   "joints": {
+    "base_yaw": 0.314,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.977,
+    "elbow": 0.151,
+    "forearm_roll": 0.467,
+    "wrist_pitch": 0.905,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 12.744,
+   "joints": {
+    "base_yaw": 0.305,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.987,
+    "elbow": 0.152,
+    "forearm_roll": 0.468,
+    "wrist_pitch": 0.905,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 12.801,
+   "joints": {
+    "base_yaw": 0.304,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.989,
+    "elbow": 0.153,
+    "forearm_roll": 0.468,
+    "wrist_pitch": 0.905,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 12.878,
+   "joints": {
+    "base_yaw": 0.304,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.989,
+    "elbow": 0.165,
+    "forearm_roll": 0.468,
+    "wrist_pitch": 0.905,
+    "wrist_roll": 0.804,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 12.944,
+   "joints": {
+    "base_yaw": 0.304,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.989,
+    "elbow": 0.171,
+    "forearm_roll": 0.468,
+    "wrist_pitch": 0.905,
+    "wrist_roll": 0.804,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 13.0,
+   "joints": {
+    "base_yaw": 0.304,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.989,
+    "elbow": 0.177,
+    "forearm_roll": 0.468,
+    "wrist_pitch": 0.905,
+    "wrist_roll": 0.804,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 13.078,
+   "joints": {
+    "base_yaw": 0.304,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.989,
+    "elbow": 0.197,
+    "forearm_roll": 0.468,
+    "wrist_pitch": 0.905,
+    "wrist_roll": 0.804,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 13.143,
+   "joints": {
+    "base_yaw": 0.304,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.989,
+    "elbow": 0.222,
+    "forearm_roll": 0.471,
+    "wrist_pitch": 0.904,
+    "wrist_roll": 0.804,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 13.2,
+   "joints": {
+    "base_yaw": 0.304,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.989,
+    "elbow": 0.235,
+    "forearm_roll": 0.477,
+    "wrist_pitch": 0.903,
+    "wrist_roll": 0.804,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 13.278,
+   "joints": {
+    "base_yaw": 0.304,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.989,
+    "elbow": 0.259,
+    "forearm_roll": 0.481,
+    "wrist_pitch": 0.89,
+    "wrist_roll": 0.804,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 13.344,
+   "joints": {
+    "base_yaw": 0.304,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.988,
+    "elbow": 0.3,
+    "forearm_roll": 0.481,
+    "wrist_pitch": 0.854,
+    "wrist_roll": 0.804,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 13.401,
+   "joints": {
+    "base_yaw": 0.304,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.987,
+    "elbow": 0.335,
+    "forearm_roll": 0.481,
+    "wrist_pitch": 0.809,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 13.478,
+   "joints": {
+    "base_yaw": 0.304,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.976,
+    "elbow": 0.371,
+    "forearm_roll": 0.481,
+    "wrist_pitch": 0.757,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 13.544,
+   "joints": {
+    "base_yaw": 0.306,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.961,
+    "elbow": 0.423,
+    "forearm_roll": 0.481,
+    "wrist_pitch": 0.688,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 13.601,
+   "joints": {
+    "base_yaw": 0.308,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.955,
+    "elbow": 0.452,
+    "forearm_roll": 0.481,
+    "wrist_pitch": 0.641,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 13.678,
+   "joints": {
+    "base_yaw": 0.319,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.946,
+    "elbow": 0.501,
+    "forearm_roll": 0.481,
+    "wrist_pitch": 0.577,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 13.744,
+   "joints": {
+    "base_yaw": 0.322,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.941,
+    "elbow": 0.547,
+    "forearm_roll": 0.482,
+    "wrist_pitch": 0.531,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 13.801,
+   "joints": {
+    "base_yaw": 0.33,
+    "shoulder": 0.003,
+    "upper_arm_roll": 0.938,
+    "elbow": 0.567,
+    "forearm_roll": 0.482,
+    "wrist_pitch": 0.506,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 13.878,
+   "joints": {
+    "base_yaw": 0.339,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.922,
+    "elbow": 0.605,
+    "forearm_roll": 0.482,
+    "wrist_pitch": 0.446,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 13.944,
+   "joints": {
+    "base_yaw": 0.342,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.904,
+    "elbow": 0.627,
+    "forearm_roll": 0.482,
+    "wrist_pitch": 0.442,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 14.0,
+   "joints": {
+    "base_yaw": 0.352,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.898,
+    "elbow": 0.634,
+    "forearm_roll": 0.482,
+    "wrist_pitch": 0.442,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 14.078,
+   "joints": {
+    "base_yaw": 0.355,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.892,
+    "elbow": 0.643,
+    "forearm_roll": 0.482,
+    "wrist_pitch": 0.442,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 14.143,
+   "joints": {
+    "base_yaw": 0.354,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.892,
+    "elbow": 0.643,
+    "forearm_roll": 0.481,
+    "wrist_pitch": 0.442,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 14.199,
+   "joints": {
+    "base_yaw": 0.355,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.892,
+    "elbow": 0.643,
+    "forearm_roll": 0.481,
+    "wrist_pitch": 0.442,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 14.278,
+   "joints": {
+    "base_yaw": 0.365,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.892,
+    "elbow": 0.643,
+    "forearm_roll": 0.481,
+    "wrist_pitch": 0.447,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 14.344,
+   "joints": {
+    "base_yaw": 0.391,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.892,
+    "elbow": 0.643,
+    "forearm_roll": 0.481,
+    "wrist_pitch": 0.463,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 14.4,
+   "joints": {
+    "base_yaw": 0.424,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.892,
+    "elbow": 0.643,
+    "forearm_roll": 0.481,
+    "wrist_pitch": 0.492,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 14.478,
+   "joints": {
+    "base_yaw": 0.468,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.892,
+    "elbow": 0.644,
+    "forearm_roll": 0.481,
+    "wrist_pitch": 0.537,
+    "wrist_roll": 0.805,
+    "gripper": 0.018
+   }
+  },
+  {
+   "t": 14.543,
+   "joints": {
+    "base_yaw": 0.492,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.892,
+    "elbow": 0.644,
+    "forearm_roll": 0.481,
+    "wrist_pitch": 0.602,
+    "wrist_roll": 0.805,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 14.6,
+   "joints": {
+    "base_yaw": 0.501,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.892,
+    "elbow": 0.642,
+    "forearm_roll": 0.48,
+    "wrist_pitch": 0.642,
+    "wrist_roll": 0.805,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 14.678,
+   "joints": {
+    "base_yaw": 0.502,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.892,
+    "elbow": 0.642,
+    "forearm_roll": 0.479,
+    "wrist_pitch": 0.635,
+    "wrist_roll": 0.805,
+    "gripper": 0.017
+   }
+  },
+  {
+   "t": 14.722,
+   "joints": {
+    "base_yaw": 0.503,
+    "shoulder": 0.004,
+    "upper_arm_roll": 0.892,
+    "elbow": 0.642,
+    "forearm_roll": 0.478,
+    "wrist_pitch": 0.624,
+    "wrist_roll": 0.805,
+    "gripper": 0.017
+   }
+  }
+ ]
+}

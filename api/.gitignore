@@ -1,0 +1,4 @@
+.env
+logs/*.jpg
+__pycache__/
+.venv/

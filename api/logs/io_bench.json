@@ -1,0 +1,103 @@
+{
+  "when": "2026-11-22T09:11:22+0100",
+  "n": 30,
+  "info": {
+    "cameras": [
+      {
+        "queue": "/0e5745204b20ad67b1b448062305de3ab4d9e6c4b928c78d5e7d104ed52473e1/usbvideo/ef25d029196cc0fdd4581681abd50020",
+        "product": "FHD C3 Camera",
+        "age_s": 0.131321694,
+        "jpeg_bytes": 17874
+      }
+    ],
+    "bench_camera": "FHD C3 Camera",
+    "look_cam_id": "32e6:9251:2025090142113"
+  },
+  "results": {
+    "direct.joints(1 entry)": {
+      "n": 30,
+      "median_ms": 47.59,
+      "p90_ms": 51.77,
+      "min_ms": 44.78,
+      "max_ms": 56.96
+    },
+    "direct.camera(1 entry)": {
+      "n": 30,
+      "median_ms": 47.48,
+      "p90_ms": 49.89,
+      "min_ms": 44.26,
+      "max_ms": 50.5
+    },
+    "handler.get_robot_state": {
+      "n": 30,
+      "median_ms": 106.51,
+      "p90_ms": 119.63,
+      "min_ms": 91.08,
+      "max_ms": 130.97
+    },
+    "handler.look(cam)": {
+      "n": 30,
+      "median_ms": 87.43,
+      "p90_ms": 125.68,
+      "min_ms": 60.06,
+      "max_ms": 143.98
+    },
+    "handler.look(all)": {
+      "n": 30,
+      "median_ms": 89.84,
+      "p90_ms": 121.67,
+      "min_ms": 56.18,
+      "max_ms": 136.92
+    },
+    "mcp.spawn+initialize": {
+      "n": 1,
+      "median_ms": 3767.91,
+      "p90_ms": 3767.91,
+      "min_ms": 3767.91,
+      "max_ms": 3767.91
+    },
+    "mcp.list_tools": {
+      "n": 1,
+      "median_ms": 21.11,
+      "p90_ms": 21.11,
+      "min_ms": 21.11,
+      "max_ms": 21.11
+    },
+    "mcp.get_robot_state": {
+      "n": 30,
+      "median_ms": 126.51,
+      "p90_ms": 146.06,
+      "min_ms": 98.72,
+      "max_ms": 179.88
+    },
+    "mcp.look(cam)": {
+      "n": 30,
+      "median_ms": 100.47,
+      "p90_ms": 140.29,
+      "min_ms": 61.01,
+      "max_ms": 167.54
+    },
+    "mcp.look(all)": {
+      "n": 30,
+      "median_ms": 99.09,
+      "p90_ms": 121.77,
+      "min_ms": 62.68,
+      "max_ms": 159.73
+    },
+    "net.tcp+tls_connect": {
+      "n": 15,
+      "median_ms": 51.29,
+      "p90_ms": 65.34,
+      "min_ms": 44.31,
+      "max_ms": 70.0
+    },
+    "net.https_rtt_warm": {
+      "n": 30,
+      "median_ms": 123.48,
+      "p90_ms": 134.18,
+      "min_ms": 119.11,
+      "max_ms": 143.22
+    },
+    "net.status": 401
+  }
+}
