@@ -1,0 +1,7 @@
+anthropic>=2.12
+python-dotenv
+pyyaml
+pillow==12.3.0
+# needed to import ~/normacore-mcp/server.py as a library
+mcp==1.30.0
+numpy==2.2.6

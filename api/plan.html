@@ -1,0 +1,473 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NormaCore Claude Controller</title>
+<style>
+:root{
+  --bg:#f7f6f3; --surface:#ffffff; --surface-2:#f0eee9; --text:#1d1c1a; --muted:#6b6860;
+  --border:#e2dfd8; --accent:#c2562f; --accent-soft:#f6e3da; --good:#2f7a4f; --good-soft:#e1f0e6;
+  --warn:#9a6a12; --warn-soft:#f7ecd4; --bad:#a93a3a; --bad-soft:#f6e0e0; --code-bg:#f3f1ec;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#161513; --surface:#1f1e1b; --surface-2:#282622; --text:#ecebe7; --muted:#a19d94;
+    --border:#34322d; --accent:#e27a52; --accent-soft:#3a251c; --good:#6cc38f; --good-soft:#1d3226;
+    --warn:#e0b25a; --warn-soft:#352a14; --bad:#e58585; --bad-soft:#3a1f1f; --code-bg:#24221f;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#161513; --surface:#1f1e1b; --surface-2:#282622; --text:#ecebe7; --muted:#a19d94;
+  --border:#34322d; --accent:#e27a52; --accent-soft:#3a251c; --good:#6cc38f; --good-soft:#1d3226;
+  --warn:#e0b25a; --warn-soft:#352a14; --bad:#e58585; --bad-soft:#3a1f1f; --code-bg:#24221f;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:16px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:920px;margin:0 auto;padding:40px 16px 80px}
+h1{font-size:2rem;line-height:1.2;margin:0 0 8px;letter-spacing:-.01em}
+h2{font-size:1.35rem;margin:48px 0 12px;padding-top:8px;border-top:1px solid var(--border)}
+h3{font-size:1.05rem;margin:24px 0 8px}
+p{margin:0 0 12px}
+.sub{color:var(--muted);margin-bottom:24px}
+code{font:0.88em/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code-bg);
+  padding:1px 5px;border-radius:4px}
+pre{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:14px 16px;
+  overflow-x:auto;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin:0 0 16px}
+pre code{background:none;padding:0}
+.verdict{background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--accent);
+  border-radius:8px;padding:18px 20px;margin:24px 0}
+.verdict p:last-child{margin:0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin:12px 0 16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px}
+.card h3{margin-top:0}
+.card p:last-child,.card ul:last-child{margin-bottom:0}
+.tag{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;margin-right:6px;vertical-align:1px}
+.t-good{background:var(--good-soft);color:var(--good)}
+.t-warn{background:var(--warn-soft);color:var(--warn)}
+.t-bad{background:var(--bad-soft);color:var(--bad)}
+.t-acc{background:var(--accent-soft);color:var(--accent)}
+ul,ol{padding-left:22px;margin:0 0 12px}
+li{margin:4px 0}
+.table-wrap{overflow-x:auto;margin:0 0 16px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:var(--surface-2);font-weight:600;white-space:nowrap}
+tr:last-child td{border-bottom:none}
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:16px 0 8px;counter-reset:f}
+.node{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;position:relative}
+.node b{display:block;font-size:13px;margin-bottom:2px}
+.node span{color:var(--muted)}
+.node.cloud{border-color:var(--accent);background:var(--accent-soft)}
+.node.cloud b{color:var(--accent)}
+.node::before{counter-increment:f;content:counter(f);position:absolute;top:8px;right:10px;font-size:11px;color:var(--muted)}
+.note{font-size:13px;color:var(--muted)}
+.timeline{border-left:2px solid var(--border);margin:8px 0 16px 6px;padding-left:18px}
+.timeline .step{position:relative;margin-bottom:18px}
+.timeline .step::before{content:"";position:absolute;left:-25px;top:6px;width:12px;height:12px;border-radius:50%;background:var(--accent)}
+.timeline .when{font-weight:700;font-size:15px}
+.timeline .done{font-size:14px;color:var(--good)}
+.tree{font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+@media (max-width:560px){h1{font-size:1.6rem} main{padding-top:24px}}
+</style>
+</head>
+<body>
+<main>
+
+<h1>NormaCore Claude Controller</h1>
+<p class="sub">Implementation plan for a Python process on the Station laptop that uses the Claude API directly. Claude looks at the camera once, picks a target, and local code moves the arm. There is no MCP and no agent loop. Folder: <code>normacore-api/</code></p>
+
+<div class="verdict">
+<p><strong>Core rule: Claude decides once, and local code does everything else.</strong> Each instruction makes exactly one Claude call with one image, and Claude's whole answer is a short list of allowed steps plus one sentence. Capture, safety checks, motion and verification all run locally with no model involved. The worst case is bounded by a hard timeout, so a 20-minute run can't happen.</p>
+<p>Goal for the demo: <strong>the arm starts moving within a few seconds of the instruction.</strong> That's a target to check against the run log, not a measured result yet.</p>
+</div>
+
+<h2>0. Goal</h2>
+<div class="verdict">
+<p><strong>Talk to the arm in plain language, and it does what you mean.</strong> You type a request, or later say it. One Claude API call reads the request, the camera view and the arm's current joint angles, and answers with up to three allowed steps plus one sentence. Local code checks each step, sends it to the Station API, and confirms through joint feedback that the arm got there.</p>
+<p>This proves the whole chain works: <strong>words → Claude API → checked command → Station API → motion → confirmed result</strong>. It needs no MCP and no camera–arm calibration.</p>
+</div>
+
+<h3>Success criteria</h3>
+<div class="table-wrap"><table>
+<tr><th>#</th><th>Criterion</th><th>Target</th><th>How it's checked</th></tr>
+<tr><td>G1</td><td><strong>Fast:</strong> median time from pressing Enter to the arm starting to move</td><td>3 s or less</td><td>Run log (<code>t_instruction</code> → <code>t_first_move</code>)</td></tr>
+<tr><td>G2</td><td><strong>Understands:</strong> commands in the test set that do what was meant</td><td>At least 18 of 20</td><td>Scored by hand from the run log</td></tr>
+<tr><td>G3</td><td><strong>Safe:</strong> steps beyond joint limits or the ±30° nudge limit that reach Station</td><td>None</td><td><code>safety.py</code> logs every clamp and decline. Test with extreme requests.</td></tr>
+<tr><td>G4</td><td><strong>Stops:</strong> "stop" (typed, button or key) halts the arm without waiting for Claude</td><td>Under 0.5 s</td><td>Manual test, 5 times</td></tr>
+<tr><td>G5</td><td><strong>Confirms:</strong> each step reports reached or not reached from joint feedback</td><td>Every step</td><td>UI and log</td></tr>
+<tr><td>G6</td><td><strong>Sees:</strong> yes/no questions about the table answered with the right gesture</td><td>At least 9 of 10</td><td>Saved photos, then live</td></tr>
+<tr><td>G7</td><td><strong>Fails safely:</strong> a network cut or API error ends in a visible hold, never a half-run step</td><td>Every time</td><td>Turn off Wi-Fi mid-request</td></tr>
+</table></div>
+
+<h3>Out of scope</h3>
+<ul>
+  <li>Grasping objects at arbitrary positions</li>
+  <li>Camera–arm calibration and x/y/z (Cartesian) moves</li>
+  <li>Long autonomous agent loops. Claude is called once per request.</li>
+</ul>
+
+<h3>Test set (start with these 12, grow to 20)</h3>
+<div class="table-wrap"><table>
+<tr><th>You say</th><th>Scene</th><th>Expected steps</th><th>Tests</th></tr>
+<tr><td>"Wave hello"</td><td>Any</td><td>gesture wave</td><td>Basic command</td></tr>
+<tr><td>"Turn left a little"</td><td>Any</td><td>jog <code>base_yaw</code> +10–20° (plus turns the arm to its left)</td><td>Direction and size</td></tr>
+<tr><td>"A bit more"</td><td>Right after the previous one</td><td>jog <code>base_yaw</code> again, same sign</td><td>Short memory</td></tr>
+<tr><td>"Raise your arm"</td><td>Any</td><td>jog <code>shoulder</code> negative (minus raises it; plus leans toward the desk)</td><td>Joint mapping</td></tr>
+<tr><td>"Go back home"</td><td>Any</td><td>gesture home</td><td>Taught pose</td></tr>
+<tr><td>"Is there a key on the table?"</td><td>Key in B</td><td>nod, then point B</td><td>Vision and yes/no</td></tr>
+<tr><td>"Is there anything I could eat here?"</td><td>No food</td><td>shake</td><td>Saying no with a gesture</td></tr>
+<tr><td>"Point to the padlock, then wave"</td><td>Padlock in C</td><td>point C, then gesture wave</td><td>Multiple steps</td></tr>
+<tr><td>"Open your hand"</td><td>Any</td><td>gripper open</td><td>Gripper</td></tr>
+<tr><td>"Spin around twice"</td><td>Any</td><td>shrug, or a jog clamped to 30°</td><td>Limits</td></tr>
+<tr><td>"Stop!"</td><td>Arm moving</td><td>Local stop, no Claude call</td><td>Stop path</td></tr>
+<tr><td>"Make me a sandwich"</td><td>Any</td><td>shrug, with a sentence saying why</td><td>Request it can't do</td></tr>
+</table></div>
+<p class="note">Add voice only after text works. The browser's built-in speech recognition (in Chrome) can fill the same text box from the UI page, adding about a second. Which way counts as "left" or "up" for each joint is set in <code>config/arm.yaml</code> (§11), and that mapping goes into the context Claude receives.</p>
+
+<h2>1. Why the MCP run took 20 minutes, and how this design avoids it</h2>
+<div class="table-wrap"><table>
+<tr><th>What made it slow</th><th>What this design does instead</th></tr>
+<tr><td>The model chose every small step itself (take a photo, look, move, check, look again), and each step was a full round trip.</td><td>Claude is called <strong>once per instruction</strong>. Taking the photo, moving and checking are ordinary local functions.</td></tr>
+<tr><td>The conversation grew with every step and kept re-sending earlier images, so each turn got slower.</td><td>Every instruction starts a fresh, short request with one cropped image.</td></tr>
+<tr><td>Claude produced motion details such as joints and coordinates, so mistakes led to retries.</td><td>Claude only picks from a short list of allowed steps: gestures, taught poses and small joint nudges. Local code supplies the joint values and keeps them within limits.</td></tr>
+<tr><td>Nothing put a limit on total time.</td><td>There's a hard timeout of about 8 s. When it runs out, the arm declines and stays put.</td></tr>
+</table></div>
+
+<h2>2. Architecture</h2>
+<div class="flow">
+  <div class="node"><b>Camera thread</b><span>Grabs frames continuously and keeps the latest one in memory.</span></div>
+  <div class="node"><b>Perception</b><span>Crops to the table, draws A/B/C labels, encodes a JPEG and tracks scene changes.</span></div>
+  <div class="node cloud"><b>Brain (Claude)</b><span>Makes one structured call and returns up to 3 allowed steps and a sentence.</span></div>
+  <div class="node"><b>Safety gate</b><span>Checks the label is allowed, the frame is fresh, the scene hasn't changed and the arm is within limits.</span></div>
+  <div class="node"><b>Executor</b><span>Runs taught poses and gestures, and confirms through joint feedback.</span></div>
+  <div class="node"><b>UI + log</b><span>Shows the live view, the decision, the reason and the timings.</span></div>
+</div>
+<p class="note">A separate warm-up thread sends the current scene to Claude whenever the cards settle, so the image part of the request is already cached when someone speaks (§4).</p>
+
+<div class="table-wrap"><table>
+<tr><th>Module</th><th>Job</th><th>Notes</th></tr>
+<tr><td><code>station_io.py</code></td><td><code>read_frame()</code>, <code>read_joints()</code>, <code>move_to(joints, speed)</code>, <code>stop()</code></td><td>Copy the working calls out of <code>~/normacore-mcp/server.py</code> (function list in §11) and drop the MCP layer. This file is the only one that talks to Station.</td></tr>
+<tr><td><code>perceive.py</code></td><td>Crop, downscale to ~768 px, overlay labels, encode JPEG, measure per-slot pixel difference</td><td>Use OpenCV only, no model.</td></tr>
+<tr><td><code>brain.py</code></td><td><code>warm(frame)</code>, <code>decide(frame, instruction)</code></td><td>The only file that calls Claude.</td></tr>
+<tr><td><code>skills.py</code></td><td><code>point(slot)</code>, <code>gesture(name)</code>, <code>jog(joint, deg)</code>, <code>gripper(state)</code></td><td>Built from taught poses in <code>config/poses.yaml</code>.</td></tr>
+<tr><td><code>safety.py</code></td><td>Allowed labels, frame age, scene-change check, joint limits, speed cap, timeout</td><td>Every motion goes through this file.</td></tr>
+<tr><td><code>app.py</code></td><td>Main loop plus a small web UI (FastAPI with an MJPEG stream and a text box)</td><td>Writes one JSONL line per run to <code>logs/</code>.</td></tr>
+</table></div>
+
+<h2>3. What Claude can tell the arm to do</h2>
+<p>Each request gets one Claude call. Claude returns schema-checked JSON through structured outputs: a list of up to three steps and one sentence. (Opus 5.5 rejects forced tool calls, and structured outputs are simpler anyway.) Claude never sends raw joint targets. Local code checks every step and then turns it into motion.</p>
+<pre><code>{
+  "steps": [                                   // listed before "say" so steps stream first
+    {"do": "gesture", "name": "nod" | "shake" | "shrug" | "wave" | "home" | "ready"},
+    {"do": "point",   "target": "A" | "B" | "C"},
+    {"do": "jog",     "joint": "base_yaw" | "shoulder" | "elbow" | "wrist_pitch" | "wrist_roll", "degrees": 15},
+    {"do": "gripper", "state": "open" | "close"}
+  ],
+  "say": "one short sentence"                  // shown on screen; optional text-to-speech
+}</code></pre>
+<div class="table-wrap"><table>
+<tr><th>Step</th><th>What local code does</th><th>Safety</th></tr>
+<tr><td><code>gesture</code></td><td>Plays a recorded or taught motion</td><td>Fixed motion, capped speed</td></tr>
+<tr><td><code>point</code></td><td>Moves to the taught hover pose above that slot</td><td>The scene must be unchanged since the photo</td></tr>
+<tr><td><code>jog</code></td><td>Reads the current joints, adds the degrees and moves</td><td>Clamped to ±30° per step and to the joint limits</td></tr>
+<tr><td><code>gripper</code></td><td>Opens or closes the gripper</td><td>The ElRobot follower has one (motor 8). Open and close map to taught values, about 0.65 and 0.36 normalized. Stop squeezing on overcurrent.</td></tr>
+</table></div>
+<p>After the image, each call also sends a short text context: the current joint angles, which direction is positive for each joint ("base_yaw +: turns left"), the joint limits, and the last three exchanges so that "a bit more" works. Names, directions and limits come from <code>config/arm.yaml</code> (§11).</p>
+<div class="grid">
+  <div class="card"><h3><span class="tag t-warn">can't do it</span>Shrug</h3><p>If the request doesn't fit the steps or isn't safe, Claude returns a shrug and says why.</p></div>
+  <div class="card"><h3><span class="tag t-acc">error / timeout</span>Hold</h3><p>On an API error, a refusal, the 8 s timeout or a failed safety check, the arm stays still and the reason appears in the UI.</p></div>
+  <div class="card"><h3><span class="tag t-bad">stop</span>Never waits for Claude</h3><p>Typing "stop", a Stop button and a keyboard key all call <code>station_io.stop()</code> immediately, on their own thread.</p></div>
+</div>
+
+<h3>How targets are marked</h3>
+<p><strong>Phase 1 uses fixed slots.</strong> Three tape outlines on the table each get a taught hover pose, and perception draws a large <code>A</code>, <code>B</code> or <code>C</code> next to each one in the image sent to Claude. Picking a labelled region is very reliable for a vision model, much more so than estimating coordinates.</p>
+<p><strong>Phase 2 (stretch) uses numbered marks, so cards can go anywhere.</strong> On a plain-coloured mat, OpenCV finds each card's outline and draws a number on it. Claude picks a number. A homography built from four corner markers turns that card's centre into table coordinates. The arm then goes to the nearest pose in a taught 3×3 hover grid, Station has no IK, so the taught grid is the only option. Claude's job stays the same: pick a label.</p>
+
+<h2>4. Speed, built in from the start</h2>
+<div class="table-wrap"><table>
+<tr><th>Technique</th><th>What it saves</th><th>Detail</th></tr>
+<tr><td><strong>One call, small output</strong></td><td>Removes repeated round trips</td><td>The answer is a label plus one sentence, about 30 tokens.</td></tr>
+<tr><td><strong>Low effort</strong></td><td>Less thinking time</td><td>Opus 5.5 always thinks, so <code>output_config.effort: "low"</code> is the control. Raise it only if accuracy drops on the saved test photos.</td></tr>
+<tr><td><strong>Crop and downscale</strong></td><td>Fewer image tokens to upload and prefill</td><td>Image tokens are roughly w×h/750. A 768×432 crop is about 440 tokens, against about 1,200 for a 1280×720 frame.</td></tr>
+<tr><td><strong>Warm the cache with the current scene</strong></td><td>Lower time to first token</td><td>When the scene has been stable for 0.5 s and differs from the last warmed frame, send a tiny real request with that image (instruction "warm-up", answer ignored). The image block carries <code>cache_control</code>, so the next real request only prefills the new instruction text. This also keeps the HTTPS connection open. It uses a real request because <code>max_tokens: 0</code> pre-warming is rejected together with structured outputs.</td></tr>
+<tr><td><strong>Stream and run each step early</strong></td><td>Skips waiting for the rest of the answer</td><td>As soon as one step's JSON object is complete in the stream, hand it to the executor. Later steps and <code>say</code> keep arriving while the arm moves.</td></tr>
+<tr><td><strong>Ready pose</strong></td><td>Shorter visible wait</td><td>Pointing demos only: when the instruction arrives, start moving to a neutral pose above the middle of the table, so the final move is short. Skip this for free-form commands, where the first step might be a jog.</td></tr>
+<tr><td><strong>Reuse one client</strong></td><td>Avoids a new TLS handshake each time</td><td>Create a single <code>anthropic.Anthropic()</code> per process.</td></tr>
+</table></div>
+<p class="note">Optional speed settings to try once everything works: <code>speed="fast"</code> on Opus 5.5 (faster output, 2× price), or a smaller model (Sonnet 5.5, Haiku 5.5) if it stays accurate on the saved test photos. Which model to use is your call. Opus 5.5 is the default here.</p>
+
+<h3>Timing log (every run)</h3>
+<p>Write one JSONL line per instruction with: <code>t_instruction</code>, <code>t_frame</code>, <code>t_sent</code>, <code>t_first_token</code>, <code>t_first_step</code>, <code>t_first_move</code>, <code>t_pose_reached</code>, plus the target, the sentence, token usage (including <code>cache_read_input_tokens</code>) and success. The UI shows the last run as a bar. This log is how you find whatever is slow. No separate benchmark is needed.</p>
+
+<h2>5. Code sketch</h2>
+<h3><code>brain.py</code></h3>
+<pre><code>import anthropic, base64, json, re, time
+
+client = anthropic.Anthropic()                 # one client, warm connection
+MODEL = "claude-opus-5-5"
+
+JOINTS = ["base_yaw", "shoulder", "elbow", "wrist_pitch", "wrist_roll"]   # ElRobot ids 1,2,4,6,7; rolls 3 and 5 left out
+
+SYSTEM = (
+    "You control a small robot arm through a fixed set of steps. The image shows the table, "
+    "with regions A, B and C labelled. Turn the user's request into at most 3 steps:\n"
+    "- gesture: nod (yes), shake (no), shrug (can't / don't know), wave, home, ready\n"
+    "- point: point at region A, B or C\n"
+    "- jog: turn one joint by a small number of degrees, using the joint directions given; "
+    "never more than 30 per step\n"
+    "- gripper: open or close\n"
+    "Answer yes/no questions about the table with nod or shake, and point when it helps. "
+    "If the request can't be done with these steps, or is unsafe, use a single shrug. "
+    "'say' is one short, friendly sentence."
+)
+
+def _obj(props):                                   # flat object with every field required
+    return {"type": "object", "properties": props,
+            "required": list(props), "additionalProperties": False}
+
+STEP = {"anyOf": [
+    _obj({"do": {"type": "string", "enum": ["gesture"]},
+          "name": {"type": "string", "enum": ["nod", "shake", "shrug", "wave", "home", "ready"]}}),
+    _obj({"do": {"type": "string", "enum": ["point"]},
+          "target": {"type": "string", "enum": ["A", "B", "C"]}}),
+    _obj({"do": {"type": "string", "enum": ["jog"]},
+          "joint": {"type": "string", "enum": JOINTS},
+          "degrees": {"type": "integer"}}),           # clamped locally to +-30 and joint limits
+    _obj({"do": {"type": "string", "enum": ["gripper"]},
+          "state": {"type": "string", "enum": ["open", "close"]}}),
+]}
+SCHEMA = _obj({"steps": {"type": "array", "items": STEP},   # steps before say -&gt; stream first
+               "say": {"type": "string"}})
+COMMON = dict(
+    model=MODEL, system=SYSTEM,
+    output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},
+    betas=["server-side-fallback-2026-07-01"], fallbacks="default",
+)
+
+def _image(jpeg):
+    return {"type": "image",
+            "source": {"type": "base64", "media_type": "image/jpeg",
+                       "data": base64.standard_b64encode(jpeg).decode()},
+            "cache_control": {"type": "ephemeral"}}        # cache everything up to the image
+
+def warm(jpeg):
+    """Scene settled: cache system + image. Same settings as decide() or the cache won't match."""
+    client.beta.messages.create(max_tokens=200, **COMMON, messages=[
+        {"role": "user", "content": [_image(jpeg), {"type": "text", "text": "warm-up"}]}])
+
+STEP_RE = re.compile(r"\{[^{}]*\}")      # each step is a flat {...}; the outer object is not
+
+def decide(jpeg, instruction, context, on_step, log):
+    """context: joint angles, joint directions and limits, last 3 exchanges - plain text."""
+    buf, sent = "", 0
+    log["t_sent"] = time.monotonic()
+    with client.beta.messages.stream(max_tokens=2000, **COMMON, messages=[
+            {"role": "user", "content": [_image(jpeg),
+                {"type": "text", "text": f"{context}\n\nUser: {instruction}"}]}]
+    ) as stream:
+        for text in stream.text_stream:
+            log.setdefault("t_first_token", time.monotonic())
+            buf += text
+            steps = STEP_RE.findall(buf)
+            for raw in steps[sent:]:                     # run each step as soon as it closes
+                log.setdefault("t_first_step", time.monotonic())
+                on_step(raw)                             # executor parses + validates it
+            sent = len(steps)
+        msg = stream.get_final_message()
+    log["usage"] = msg.usage.model_dump()
+    if msg.stop_reason != "end_turn":
+        return {"steps": [], "say": f"Holding ({msg.stop_reason})."}
+    return json.loads(buf)</code></pre>
+<p class="note">Check <code>usage.cache_read_input_tokens</code> on the first real request after a warm-up. If it's 0, the prefix differed: compare the image bytes, the system prompt and <code>output_config</code>.</p>
+
+<h3><code>app.py</code> main path</h3>
+<pre><code>STOP_WORDS = {"stop", "halt", "freeze"}
+
+def handle(text):
+    if text.strip().lower().rstrip("!.") in STOP_WORDS:          # never waits for Claude
+        station_io.stop(); ui.show({"say": "Stopped."}); return
+    log = {"t_instruction": now(), "instruction": text}
+    frame = camera.latest();               log["t_frame"] = now()
+    jpeg  = perceive.prepare(frame)        # crop + labels + JPEG (same bytes the warm-up used if unchanged)
+    context = describe_state(station_io.read_joints(), history[-3:])   # angles, directions, limits, recent turns
+    result = run_with_timeout(8.0, brain.decide, jpeg, text, context,
+                              on_step=lambda raw: executor.submit(raw, frame, log), log=log)
+    if result is TIMEOUT:
+        executor.cancel_pending(); result = {"steps": [], "say": "That took too long, so I'm holding still."}
+    history.append((text, result)); ui.show(result, log); logs.append(log)
+
+def execute(raw, decision_frame, log):              # executor thread: steps run in order
+    step, why = safety.parse_and_check(raw, decision_frame, camera.latest())  # schema, freshness, scene
+    if step is None:
+        return skills.hold(reason=why)
+    log.setdefault("t_first_move", now())
+    match step["do"]:
+        case "gesture": reached = skills.gesture(step["name"])
+        case "point":   reached = skills.point(step["target"])
+        case "jog":     reached = skills.jog(step["joint"], safety.clamp_jog(step))   # +-30, limits
+        case "gripper": reached = skills.gripper(step["state"])
+    log.setdefault("results", []).append({"step": step, "reached": reached, "t": now()})</code></pre>
+
+<h2>6. Build plan</h2>
+<div class="timeline">
+  <div class="step"><div class="when">M0 · Hardware layer (≈30 min)</div>
+  <p>Pull the Station calls out of the MCP server into <code>station_io.py</code>. Write <code>smoke.py</code>, which grabs a frame, saves it, prints the joints and moves to home.</p>
+  <p class="done">Done when: the script runs without errors, and a frame read takes well under a second. If it doesn't, fix the camera first.</p></div>
+
+  <div class="step"><div class="when">M1 · Brain on saved photos (≈45 min, no arm)</div>
+  <p>Set up three slots with tape. Take about 12 photos of different layouts: shuffled orders, the key missing, and confusing cards such as a padlock, a door and a keyhole. Write the correct answers in <code>bench/frames/labels.csv</code>. Run <code>decide()</code> on every photo.</p>
+  <p class="done">Done when: at least 11 of 12 are correct at low effort, and the typical response time is acceptable. If not, adjust the prompt or crop, then the effort, in that order.</p></div>
+
+  <div class="step"><div class="when">M2 · Poses + skills + safety (≈45 min)</div>
+  <p>Teach the home, ready and A/B/C hover poses into <code>poses.yaml</code>. Build <code>point</code>, <code>shake_no</code> and <code>home</code> with a speed cap, joint tolerance and timeout. Test each one with hard-coded targets.</p>
+  <p class="done">Done when: each skill reaches its pose 5 times in a row, with the e-stop tested.</p></div>
+
+  <div class="step"><div class="when">M3 · End to end in the terminal (≈30 min)</div>
+  <p>Type a request in the terminal, and the arm runs the steps: gestures, pointing, jogs and the gripper. Add the local stop path and the JSONL timing log.</p>
+  <p class="done">Done when: the 12-command test set (§0) passes, and the demo beats (§7) work 3 times in a row.</p></div>
+
+  <div class="step"><div class="when">M4 · Speed (≈45 min)</div>
+  <p>Add the scene-settle warm-up thread, then early dispatch on <code>target</code>, then the ready pose. Check the log after each one and keep it only if the time to first movement improves.</p>
+  <p class="done">Done when: the log shows cache reads after warm-ups and a steady median time to first movement.</p></div>
+
+  <div class="step"><div class="when">M5 · Demo UI (≈60 min)</div>
+  <p>Build one page with the live camera view, the image Claude saw (with labels), the target, the <code>say</code> sentence (optionally spoken aloud), and a timing bar for the last run. Add a text box for judges.</p>
+  <p class="done">Done when: someone who hasn't seen it before can run the demo without help.</p></div>
+
+  <div class="step"><div class="when">M6 · Stretch</div>
+  <p>Numbered marks for free card placement (§3), multi-step instructions using <code>"targets": [..]</code> with up to 3 items, voice input with push-to-talk and local speech-to-text.</p></div>
+</div>
+
+<h2>7. Demo script (about 2 minutes)</h2>
+<div class="grid">
+  <div class="card"><h3>1 · Understands</h3><p>The cards are a key, a padlock and a door. "Point to the thing I could use to open a locked door." The arm points at the key. The screen shows Claude's sentence and the timing bar.</p></div>
+  <div class="card"><h3>2 · Adapts</h3><p>Shuffle the cards and give the same instruction, and it finds the key in its new slot. Then ask "What keeps a bike safe?" and it points at the padlock. Same cards, different answer.</p></div>
+  <div class="card"><h3>3 · Declines</h3><p>Remove the key and repeat the first instruction. The arm shakes "no" and says why.</p></div>
+  <div class="card"><h3>4 · Judge's turn</h3><p>A judge types anything they like. Free-form input with a constrained output shows real understanding.</p></div>
+  <div class="card"><h3>5 · Just talk to it</h3><p>"Wave hello." "Turn left a little." "A bit more." "Is there anything to eat here?" (it shakes no). "Stop!" The timing bar shows each request going to Claude, then Station, then the arm.</p></div>
+</div>
+
+<h2>8. Demos that need no camera–arm calibration</h2>
+<div class="verdict">
+<p><strong>Rule: the camera decides <em>what</em>, and taught or recorded poses decide <em>where</em>.</strong> Camera–arm calibration is only needed when a pixel has to become an arm coordinate. If every place the arm goes is taught by hand (move the arm there and save the joints), the camera never has to know where the arm is. The pointing demo above already works this way, and so do all the ideas below.</p>
+</div>
+<div class="table-wrap"><table>
+<tr><th>Demo</th><th>What Claude decides</th><th>What the arm does</th><th>Setup</th><th>Risk</th></tr>
+<tr><td><strong>Body-language answers</strong></td><td>Answers a yes/no question about the scene, such as "Is there anything I could eat here?" or "Is it safe to leave this on the table?"</td><td>Nod, shake no, shrug, wave, or nod and then point at a slot</td><td>3–4 recorded gestures</td><td><span class="tag t-good">low</span></td></tr>
+<tr><td><strong>Tic-tac-toe against Claude</strong></td><td>Reads the paper board from the camera, picks a cell (1–9) and adds a line of friendly trash talk</td><td>Taps the cell with a pen (dot) or points at it so the human draws O</td><td>A taped 3×3 grid and 9 taught poses</td><td><span class="tag t-good">low</span>–<span class="tag t-warn">med</span></td></tr>
+<tr><td><strong>Skill picker</strong></td><td>Looks at the scene and the instruction and picks a skill plus a slot, for example "push B off the mat" or "tap A twice"</td><td>Replays a motion you recorded by hand-guiding the arm. If Station can run a learned policy, Claude can choose which policy to run.</td><td>Record 3–5 motions</td><td><span class="tag t-warn">med</span></td></tr>
+<tr><td><strong>Inspection / sorting station</strong></td><td>An item placed in a fixed "inbox" spot is judged as good or defective, or recyclable or trash</td><td>Pushes the item left or right from the inbox (a push doesn't need a precise grip), or grabs from a fixed pocket</td><td>A fixed inbox and 2 push motions</td><td><span class="tag t-warn">med</span></td></tr>
+<tr><td><strong>Five-minute sticker calibration</strong>, to enable pointing anywhere</td><td>Picks any object anywhere on the table (numbered marks, §3)</td><td>Goes to the pose that best matches that pixel</td><td>Put a coloured sticker on the arm tip, move it through about 9 grid poses, and save where the sticker appears in the image at each pose. To point at a pixel, use the nearest pose or interpolate between nearby ones.</td><td><span class="tag t-warn">med</span></td></tr>
+<tr><td><strong>Wrist camera</strong> (only if the camera is on the arm)</td><td>Names the target</td><td>A local OpenCV loop nudges the arm until the target is centred in the image. Calibration isn't needed because the loop corrects itself.</td><td>Depends on how the camera is mounted</td><td><span class="tag t-bad">high</span></td></tr>
+</table></div>
+
+<h3>Recommendation</h3>
+<ol>
+  <li><strong>Main demo:</strong> pointing (§7) plus body-language answers. The gestures cost about 20 minutes and make the arm feel like it's communicating, not just moving to positions. The step list in §3 already includes these gestures.</li>
+  <li><strong>Judge interaction:</strong> tic-tac-toe. Turn-based play hides a few seconds of thinking, judges can join in, and it reuses the same one-call brain with the target set to cells 1–9. Check locally that the chosen cell is empty, and if it isn't, ask Claude once more.</li>
+  <li><strong>If time remains:</strong> either the skill picker, if Station's recording or replay is easy to use, or the sticker calibration for free pointing.</li>
+</ol>
+<p class="note">Skip any demo that depends on precise grasping of objects at arbitrary positions. Without calibration it's the most likely thing to fail live.</p>
+
+<h2>9. Risks and fallbacks</h2>
+<ul>
+  <li><strong>Venue Wi-Fi.</strong> Use a phone hotspot as backup, and record a video of a good run in case everything else fails.</li>
+  <li><strong>API errors or slowness.</strong> The 8 s timeout and any error both lead to a visible hold with the reason shown. The SDK retries 429 and 5xx errors by its default rules, inside the same timeout.</li>
+  <li><strong>Cards shuffled while Claude is deciding.</strong> The safety gate compares the slot regions in the decision frame with the live frame and cancels if they differ.</li>
+  <li><strong>Camera bumped.</strong> Tape outlines or corner markers are checked at startup, and one key press re-runs calibration.</li>
+  <li><strong>Lighting.</strong> Use bold, high-contrast card art, and re-run the saved-photo check under venue lighting.</li>
+  <li><strong>Unsafe motion.</strong> The arm only uses taught poses, with a speed cap and joint limits in <code>safety.py</code>, and someone keeps a hand on the e-stop.</li>
+</ul>
+
+<h2>10. Folder layout</h2>
+<pre class="tree"><code>normacore-api/
+├── plan.html
+├── README.md
+├── requirements.txt        # anthropic, opencv-python, fastapi, uvicorn, pyyaml
+├── config/
+│   ├── arm.yaml            # joints, limits, directions, hazards (done)
+│   ├── poses.yaml          # home, ready, A/B/C hover joints; tolerance; speed cap
+│   └── scene.yaml          # crop box, label positions, slot regions, marker ids
+├── src/
+│   ├── station_io.py       # extracted from MCP handlers - only file that talks to Station
+│   ├── perceive.py
+│   ├── brain.py            # only file that calls Claude
+│   ├── skills.py
+│   ├── safety.py
+│   └── app.py              # main loop + web UI
+├── tools/
+│   ├── smoke.py            # M0 hardware check
+│   └── teach.py            # record current joints into poses.yaml
+├── bench/
+│   ├── frames/             # saved layouts + labels.csv
+│   ├── commands.csv        # spoken/typed test set + expected steps (§0)
+│   └── eval_frames.py      # accuracy + timing over saved frames
+└── logs/runs.jsonl</code></pre>
+
+<h2>11. Arm and Station facts (checked 2026-11-22)</h2>
+<p>Read from the live arm, the MCP server source and the ElRobot hardware files. The same data is in <code>config/arm.yaml</code>.</p>
+
+<h3>Arm</h3>
+<p><strong>ElRobot follower</strong>: 7 arm joints plus a gripper, ST3215 12&nbsp;V servos, about 430&nbsp;mm reach. Follower bus <code>5B8E115950</code> is the only bus code may command; the leader <code>5B91043428</code> is never commanded. Station takes joint-space moves only (no IK). Positions are normalized 0..1 inside each joint's calibrated range; the ST3215 has 4096 steps per turn, and every calibrated range on this arm is centred on step 2048.</p>
+<div class="table-wrap"><table>
+<tr><th>id</th><th>Joint</th><th>Calibrated span</th><th>URDF limits</th><th>° per 0.01</th><th>Plus direction</th><th>Jog</th></tr>
+<tr><td>1</td><td><code>base_yaw</code></td><td>179.8°</td><td>±88.9°</td><td>1.80</td><td>turns left</td><td>yes</td></tr>
+<tr><td>2</td><td><code>shoulder</code></td><td>193.5°</td><td>±92.4°</td><td>1.94</td><td>leans toward the desk; 0 = fully up and back</td><td>yes</td></tr>
+<tr><td>3</td><td><code>upper_arm_roll</code></td><td>205.1°</td><td>±100.9°</td><td>2.05</td><td>tilts the view down</td><td>no</td></tr>
+<tr><td>4</td><td><code>elbow</code></td><td>204.1°</td><td>±100.5°</td><td>2.04</td><td>lowers toward the desk</td><td>yes</td></tr>
+<tr><td>5</td><td><code>forearm_roll</code></td><td>350.7°</td><td>−150.1…+186.3°</td><td>3.51</td><td>pans the view right</td><td>no</td></tr>
+<tr><td>6</td><td><code>wrist_pitch</code></td><td>183.0°</td><td>−78.9…+101.1°</td><td>1.83</td><td>tilts the camera down</td><td>yes</td></tr>
+<tr><td>7</td><td><code>wrist_roll</code></td><td>342.2°</td><td>−183.4…+156.6°</td><td>3.42</td><td>rotates clockwise; 0.51 = upright</td><td>yes</td></tr>
+<tr><td>8</td><td><code>gripper</code></td><td>137.3°</td><td>0…126.2°</td><td>1.37</td><td>opens: 0.36 narrow, 0.5 half, 0.65 wide, ~0.92 max</td><td>open/close</td></tr>
+</table></div>
+<ul>
+  <li><strong>Hard limits</strong> in <code>safety.py</code>: use the URDF limits, which are narrower than the calibrated span on every joint. Assumes step 2048 is the URDF zero; check that once on the arm.</li>
+  <li><strong>Jog cap</strong>: ±30° is about 0.15–0.17 normalized on base, shoulder, elbow and wrist pitch, and about 0.09 on wrist roll. The MCP server also clamps any single move to 0.15.</li>
+  <li><strong>Known hazards</strong>: shoulder above ~0.9 with a low elbow presses the jaws into the desk; the elbow stalls below ~0.06; a laptop and cables sit right of the base, so keep low moves away from <code>base_yaw</code> &lt; 0.4. Shoulder and elbow sag slightly under gravity.</li>
+  <li><strong>Directions</strong> were found by nudging joints and watching the gripper camera, with the wrist upright. Re-check one small jog per joint before the demo.</li>
+</ul>
+
+<h3>Station code to reuse</h3>
+<p>From <code>~/normacore-mcp/server.py</code> (Python, talks to Station over TCP :8888):</p>
+<div class="table-wrap"><table>
+<tr><th><code>station_io</code> call</th><th>Copy from</th></tr>
+<tr><td>connection</td><td><code>client()</code>, <code>read_last()</code></td></tr>
+<tr><td><code>read_frame()</code></td><td><code>camera_snapshot()</code> (newest JPEG and its age), <code>cameras()</code>; roles <code>desk</code> and <code>gripper</code> are in <code>data/cameras.json</code></td></tr>
+<tr><td><code>read_joints()</code></td><td><code>read_buses()</code> (median of the last 3 snapshots, which filters bad readings), <code>parse_inference_state()</code></td></tr>
+<tr><td><code>move_to()</code></td><td><code>go_to()</code> → <code>_run_motion()</code> with <code>motion.py</code>: smooth ~20&nbsp;Hz motion that aborts on overcurrent, tracking error or stale state. <code>_sync_write()</code> for single writes.</td></tr>
+<tr><td><code>stop()</code></td><td><code>stop_motion()</code>, <code>hold()</code> (freeze in place); <code>relax()</code> drops torque and the arm falls</td></tr>
+<tr><td>guard</td><td><code>guard_motion()</code>: refuses the leader and any arm being mirrored by Station teleop</td></tr>
+</table></div>
+
+<h3>Measured (no model calls)</h3>
+<div class="table-wrap"><table>
+<tr><th>What</th><th>Median</th></tr>
+<tr><td>One Station queue read (joints or one camera frame)</td><td>47&nbsp;ms</td></tr>
+<tr><td><code>get_robot_state</code> / <code>look</code> over MCP</td><td>127 / 100&nbsp;ms</td></tr>
+<tr><td>Same calls inside Claude Code (auto mode, from past sessions)</td><td>1.05 / 1.46&nbsp;s</td></tr>
+<tr><td>API round trip, warm connection, office network</td><td>124&nbsp;ms</td></tr>
+<tr><td>Past MCP runs: model turns per instruction, seconds per turn</td><td>10 turns, 3.1&nbsp;s</td></tr>
+</table></div>
+<p class="note">Every Station read costs about 45&nbsp;ms inside Station, so <code>station_io</code> should read as little as possible per decision. Stop (G4) has plenty of room within 0.5&nbsp;s.</p>
+
+<h3>Cameras and wiring</h3>
+<ul>
+  <li><strong>Desk camera</strong> (32e6:9228) looks down the table from the far end, 853×480 frames. <strong>Gripper camera</strong> (32e6:9251) looks between the jaws, 320×240.</li>
+  <li>Working wiring: leader, follower and desk camera each on a laptop port, gripper camera on the extension. That uses the charger port, so the laptop runs on battery.</li>
+  <li>The arm serial adapters don't connect through the extension, and two cameras on the extension exceed its USB bandwidth. Charging means dropping the desk camera, unless Station is patched to cap each camera's bandwidth.</li>
+</ul>
+
+<h3>Still needed</h3>
+<ul>
+  <li>An <code>ANTHROPIC_API_KEY</code> on the laptop (Linux, Python 3.10).</li>
+</ul>
+
+</main>
+</body>
+</html>
+
+</body></html>

@@ -1,0 +1,13 @@
+instruction,scene,expected,tests
+Wave hello,any,gesture wave,basic command
+Turn left a little,any,jog base_yaw +10..20,direction and size
+A bit more,right after the previous one,jog base_yaw same sign,short memory
+Raise your arm,any,jog shoulder negative (or shrug if already up),joint mapping
+Go back home,any,gesture home,taught pose
+Is there a key on the table?,key in B,nod then point B,vision and yes/no
+Is there anything I could eat here?,no food,shake,saying no with a gesture
+"Point to the padlock, then wave",padlock in C,point C then wave,multiple steps
+Open your hand,any,gripper open,gripper
+Spin around twice,any,shrug or jog clamped to 30,limits
+Stop!,arm moving,local stop (no Claude call),stop path
+Make me a sandwich,any,shrug with a reason,request it can't do

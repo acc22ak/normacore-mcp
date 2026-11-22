@@ -1,0 +1,22 @@
+# Taught poses, normalized 0..1 per joint. Re-teach before the demo with tools/teach.py.
+# home/ready come from probing on 2026-11-21 (not yet re-checked on the arm).
+# A/B/C hover poses are not taught yet; point steps are disabled until they are.
+home:  {base_yaw: 0.518, shoulder: 0.02, upper_arm_roll: 0.57, elbow: 0.907, forearm_roll: 0.539, wrist_pitch: 0.554, wrist_roll: 0.512, gripper: 0.508}
+ready: {base_yaw: 0.518, shoulder: 0.02, upper_arm_roll: 0.57, elbow: 0.69,  forearm_roll: 0.539, wrist_pitch: 0.57,  wrist_roll: 0.512, gripper: 0.508}
+slots:
+  A: null
+  B: null
+  C: null
+
+motion:
+  speed_scale: 0.5        # first runs at half speed (MCP practice-ladder rule)
+  reach_tol: 0.03         # norm; a step counts as reached when every joint is within this
+  gripper: {open: 0.65, close: 0.0}   # fingers meet at ~0.01 (measured 2026-11-22); a grasp stops earlier, on the object
+
+# Gestures: keyframes as offsets from the pose the gesture starts in (norm), each followed by its duration.
+# Small on purpose. Offsets are clamped to the joint limits before sending.
+gestures:
+  nod:   [[{wrist_pitch: +0.06}, 0.35], [{wrist_pitch: -0.03}, 0.35], [{wrist_pitch: +0.06}, 0.35], [{}, 0.35]]
+  shake: [[{base_yaw: +0.05}, 0.35], [{base_yaw: -0.05}, 0.5], [{base_yaw: +0.05}, 0.5], [{}, 0.35]]
+  shrug: [[{wrist_roll: +0.06, elbow: -0.03}, 0.5], [{wrist_roll: -0.06, elbow: -0.03}, 0.6], [{}, 0.5]]
+  wave:  [[{wrist_roll: +0.08}, 0.3], [{wrist_roll: -0.08}, 0.4], [{wrist_roll: +0.08}, 0.4], [{wrist_roll: -0.08}, 0.4], [{}, 0.3]]
