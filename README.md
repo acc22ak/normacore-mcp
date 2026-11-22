@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🦾 NormaCore × Claude
+# 🦾 NormaCore × AI
 
 **Tell a robot arm what to move where. It looks, finds the thing, picks it up and checks its own work.**
 
