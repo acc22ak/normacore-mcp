@@ -62,6 +62,20 @@ flowchart LR
 | 📡 **RealSense bridge** (`realsense-bridge/`) | Streams D435 depth and color over websocket and stores the calibration |
 | 🖥️ **Station viewer** (`station-viewer-patches/`) | Dark restyle, live 3D point cloud, IK/arm-pose preview, agent panel |
 | 🔁 **Self-improvement** (`learn.py`, `CLAUDE.md`) | Logs every attempt, versions the skills, practice ladder for speed, lessons kept in *Learned facts* |
+| 💬 **Arm chat app** (`api/`) | Type or say a request in a web panel; Claude (or GPT) moves the arm through the same `server.py`, with STOP, gripper buttons and a cost meter |
+
+## 💬 Or just talk to it
+
+The arm chat app (`api/`) puts the robot, its cameras and a chat box on one page. Every answer shows how long it took and what it cost.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/media/app-arm-chat.jpg" alt="Arm chat: both arms in 3D with their gripper cameras; 'close the gripper' was grasped in 3.8 s for $0.004"><br><b>“Close the gripper”</b><br>Grasp confirmed by motor current, in 3.8 s, for $0.004.</td>
+<td width="50%"><img src="docs/media/app-stops-and-asks.jpg" alt="Arm chat with the depth point cloud: Claude reports the brush slipped next to the Lego box and stops to ask"><br><b>It stops and asks</b><br>The brush slipped next to the box. Claude saw it on the cameras and stopped instead of guessing.</td>
+</tr>
+</table>
+
+👉 Setup and run: **[api/README.md](api/README.md)**
 
 ## 🔁 It gets better every run
 
@@ -123,6 +137,7 @@ depth.py               depth + color vision, object finding
 arm_model.py arm_fit.py  kinematics and camera/arm calibration
 motion.py estop.py     motion engine and safety
 learn.py activity.py   attempt logging and skills
+api/                   arm chat app: web panel + Claude/GPT controller
 realsense-bridge/      D435 → websocket bridge + calibration.json
 station-viewer-patches/ our norma-core station-viewer changes
 notes/                 pitch, station notes, 3D explainer, design directions
