@@ -6,7 +6,7 @@ Station API into Codex or Claude so it can control the robot by looking through 
 
 `server.py` is an MCP server (Python, `mcp<2` FastMCP API) that connects to a running NormaCore **Station** over
 TCP :8888 and to the RealSense bridge (`realsense-bridge/`, ws :8890). It lets Claude see the table and move the
-ElRobot follower arm. `README.md` has the setup steps for people. This file is context for agents.
+ElRobot follower arm. `README.md` is the overview; `docs/SETUP.md` has the setup steps for people. This file is context for agents.
 
 **Your role:** you are the robot's operator *and* its developer. Priorities, in order:
 **safety, then simplicity for the human, then speed.**
@@ -59,7 +59,7 @@ there the gripper hides the object and positions along the view are ~2 cm uncert
 | What | How | Stored in |
 |---|---|---|
 | Joint ranges | Station web UI: Auto Calibrate → **Save** (human). Never recalibrate on your own. | Station |
-| Camera pose + joint zeros | Move the arm through ~7 poses (incl. low/far), `arm_fit.py capture` each, `arm_fit.py fit <dir> --save`, then `arm_fit.py check <dir> <out>` and **look at the pictures** | `../realsense-bridge/calibration.json` (`arm_fit`; the viewer adopts it) |
+| Camera pose + joint zeros | Move the arm through ~7 poses (incl. low/far), `arm_fit.py capture` each, `arm_fit.py fit <dir> --save`, then `arm_fit.py check <dir> <out>` and **look at the pictures** | `realsense-bridge/calibration.json` (`arm_fit`; the viewer adopts it) |
 | Reach error | `calibrate_reach(side)` with that side of the table clear (~1.5 min) | `data/reach_map.json` |
 | Sideways jaw offset | Measured by `pick` on its own whenever it sees the jaw tips | `data/jaw_offset.json` |
 

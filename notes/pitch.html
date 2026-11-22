@@ -298,6 +298,34 @@ td:last-child{color:var(--ink)}
 </div>
 </section>
 
+<section class="slide " data-notes="And it doesn't stop there: the MCP keeps improving the robot's movements on its own. Every try is logged with its frames. Claude reads what went wrong, changes one thing, and saves it as a new version of the skill: a corrected pose, a re-measured offset, or a new rule in the tool. Two clean runs in a row and the skill speeds up a step; a miss and it slows down and gets fixed. Each iteration starts from the last one's lessons. (~25 s)">
+<h2 class="short">It gets better every run.</h2>
+<div class="fig"><svg viewBox="0 0 1400 560" role="img" aria-label="A loop: try, log, learn, update the skill, try again. Each new skill version runs faster." fill="none" font-family="Instrument Sans, sans-serif">
+  <path id="lp" d="M300 110H1100Q1180 110 1180 190V350Q1180 430 1100 430H300Q220 430 220 350V190Q220 110 300 110Z" stroke="#5d6876" stroke-width="1.5"/>
+  <g>
+    <circle r="4.5" fill="#f2b566"><animateMotion dur="8s" begin="0s" repeatCount="indefinite"><mpath href="#lp"/></animateMotion></circle><circle r="4.5" fill="#c98fb0"><animateMotion dur="8s" begin="-2s" repeatCount="indefinite"><mpath href="#lp"/></animateMotion></circle><circle r="4.5" fill="#7d93f0"><animateMotion dur="8s" begin="-4s" repeatCount="indefinite"><mpath href="#lp"/></animateMotion></circle><circle r="4.5" fill="#e9edf2"><animateMotion dur="8s" begin="-6s" repeatCount="indefinite"><mpath href="#lp"/></animateMotion></circle>
+  </g>
+  <!-- nodes -->
+  <g stroke-dasharray="0.01 9" stroke-linecap="round" stroke-width="4.5" fill="#1d232c">
+    <circle cx="300" cy="110" r="46" stroke="#f2b566"/><circle cx="1100" cy="110" r="46" stroke="#7d93f0"/>
+    <circle cx="1100" cy="430" r="46" stroke="#c98fb0"/><circle cx="300" cy="430" r="46" stroke="#e9edf2"/>
+  </g>
+  <text x="300" y="119" text-anchor="middle" font-size="26" fill="#f2b566">1</text><text x="1100" y="119" text-anchor="middle" font-size="26" fill="#7d93f0">2</text>
+  <text x="1100" y="439" text-anchor="middle" font-size="26" fill="#c98fb0">3</text><text x="300" y="439" text-anchor="middle" font-size="26" fill="#e9edf2">4</text>
+  <text x="380" y="72" font-size="28" fill="#e9edf2">Try</text><text x="380" y="102" font-size="19" fill="#94a0ae">pick, place, move</text>
+  <text x="1020" y="72" text-anchor="end" font-size="28" fill="#e9edf2">Log</text><text x="1020" y="102" text-anchor="end" font-size="19" fill="#94a0ae">every move, with its frames</text>
+  <text x="1020" y="478" text-anchor="end" font-size="28" fill="#e9edf2">Learn</text><text x="1020" y="508" text-anchor="end" font-size="19" fill="#94a0ae">Claude finds what went wrong</text>
+  <text x="380" y="478" font-size="28" fill="#e9edf2">Update the skill</text><text x="380" y="508" font-size="19" fill="#94a0ae">one change, saved as a new version</text>
+  <!-- skill versions getting faster -->
+  <g font-size="20">
+    <text x="430" y="212" fill="#94a0ae">skill v1</text><rect x="540" y="196" width="120" height="20" rx="4" fill="#5d6876"/><text x="676" y="212" fill="#94a0ae">0.5×</text>
+    <text x="430" y="262" fill="#94a0ae">skill v2</text><rect x="540" y="246" width="240" height="20" rx="4" fill="#7d93f0"/><text x="796" y="262" fill="#94a0ae">1.0×</text>
+    <text x="430" y="312" fill="#e9edf2">skill v3</text><rect x="540" y="296" width="400" height="20" rx="4" fill="#f2b566"/><text x="956" y="312" fill="#e9edf2">1.5× →</text>
+    <text x="430" y="364" font-size="18" fill="#5d6876">2 clean runs → one step faster · a miss → one step slower, then fix</text>
+  </g>
+</svg></div>
+</section>
+
 <section class="slide " data-notes="Safety, briefly. The motion engine stops and holds if a servo falls behind. Nothing moves while teleoperation or the e-stop is on. A failed servo read used to look like position zero; now the last good value is kept. Every call is logged with its frames. (~15 s)">
 <h2>Safe by design.</h2>
 <div class="calib safe">
